@@ -221,6 +221,6 @@ direct_dependencies:
 - idf
 - lvgl/lvgl
 - waveshare/esp32_c6_touch_amoled_2_06
-manifest_hash: 862f28d969dd7b9b48d4781338ec9423b4623fe0f07bdbbb572fa568d3315ca9
+manifest_hash: 0bfc3d33d30b41cef2d810b98d6dda0079651b49c3bb2f72f57ea41b02cd7654
 target: esp32c6
 version: 2.0.0
