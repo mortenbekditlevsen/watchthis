@@ -35,7 +35,10 @@ constexpr int CLOCK_MIN_VALID_YEAR = 2024;
 uint32_t clock_hands_anim_end_tick = 0;
 
 const char *const WEEKDAY_NAMES[] = {"Søn", "Man", "Tir", "Ons", "Tor", "Fre", "Lør"};
-const char *const MONTH_NAMES[] = {"Jan", "Feb", "Mar", "Apr", "Maj", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dec"};
+// Danish abbreviations; "maj" is the full word, so it has no period
+const char *const MONTH_NAMES[] = {
+    "jan.", "feb.", "mar.", "apr.", "maj", "jun.", "jul.", "aug.", "sep.", "okt.", "nov.", "dec."
+};
 
 // Hand images point to 12 o'clock at rotation 0; rotation is in 0.1 degree units
 int32_t clock_hour_angle(const struct tm &t)
@@ -80,7 +83,7 @@ void clock_update(lv_timer_t *timer)
     } else {
         snprintf(buf, sizeof(buf), "%02d:%02d", t.tm_hour, t.tm_min);
         label_set_text_if_changed(ui_clock_label_clock_number, buf);
-        snprintf(buf, sizeof(buf), "%s %d %s", WEEKDAY_NAMES[t.tm_wday], t.tm_mday, MONTH_NAMES[t.tm_mon]);
+        snprintf(buf, sizeof(buf), "%s %d. %s", WEEKDAY_NAMES[t.tm_wday], t.tm_mday, MONTH_NAMES[t.tm_mon]);
         label_set_text_if_changed(ui_clock_small_label_date, buf);
     }
 
