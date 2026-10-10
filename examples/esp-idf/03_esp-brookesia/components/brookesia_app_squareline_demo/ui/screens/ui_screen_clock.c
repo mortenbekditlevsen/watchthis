@@ -140,7 +140,7 @@ void ui_screen_clock_screen_init(void)
     ui_clock_small_label_date = ui_label_small_label_create(ui_screen_clock);
     lv_obj_set_x(ui_clock_small_label_date, 0);
     lv_obj_set_y(ui_clock_small_label_date, 76);
-    lv_label_set_text(ui_clock_small_label_date, "Mon 28 Oct");
+    lv_label_set_text(ui_clock_small_label_date, "Lør 10 Okt");
     lv_obj_set_style_text_color(ui_clock_small_label_date, lv_color_hex(0x9C9CD9), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(ui_clock_small_label_date, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
 

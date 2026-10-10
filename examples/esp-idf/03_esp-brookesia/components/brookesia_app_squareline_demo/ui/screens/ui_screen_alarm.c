@@ -64,7 +64,7 @@ void ui_screen_alarm_screen_init(void)
                       "9:30");
 
     lv_label_set_text(ui_comp_get_child(ui_alarm_alarm_comp_alarm_comp2, UI_COMP_PANEL_ALARM_COMP_SMALL_LABEL_PERIOD),
-                      "Yoga");
+                      "Bertha");
 
 
 

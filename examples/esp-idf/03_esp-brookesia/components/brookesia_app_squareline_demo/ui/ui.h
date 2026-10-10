@@ -170,6 +170,7 @@ LV_IMG_DECLARE(ui_img_weather_3_png);    // assets/weather_3.png
 
 // FONTS
 LV_FONT_DECLARE(ui_font_Number);
+LV_FONT_DECLARE(ui_font_danish_18);
 
 
 // esp-brookesia: changed

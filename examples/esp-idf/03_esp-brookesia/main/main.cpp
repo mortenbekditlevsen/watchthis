@@ -13,6 +13,7 @@
 #define ESP_UTILS_LOG_TAG "Main"
 #include "esp_lib_utils.h"
 #include "./dark/stylesheet.hpp"
+#include "time_sync.hpp"
 
 using namespace esp_brookesia;
 using namespace esp_brookesia::gui;
@@ -100,6 +101,9 @@ extern "C" void app_main(void)
             );
         }, 1000, phone);
     }
+
+    /* Restore the clock from the RTC, then sync it once over Wi-Fi via SNTP (configure in menuconfig) */
+    time_sync_start();
 
     if constexpr (EXAMPLE_SHOW_MEM_INFO) {
         esp_utils::thread_config_guard thread_config({

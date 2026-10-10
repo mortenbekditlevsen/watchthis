@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "main.cpp"
+    SRCS "main.cpp" "time_sync.cpp" "rtc_pcf85063.cpp"
     INCLUDE_DIRS ".")
 
 target_compile_options(${COMPONENT_LIB} PUBLIC -Wno-missing-field-initializers)
