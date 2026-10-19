@@ -10,8 +10,10 @@
 namespace esp_brookesia::systems::phone {
 
 constexpr AppLauncherIcon::Data STYLESHEET_410_502_DARK_APP_LAUNCHER_ICON_DATA = {
+    // Original icon/label sizes; cells are just tall enough for them (120 + 10 + label) so a 2x2 grid fits in the
+    // launcher table below
     .main = {
-        .size = gui::StyleSize::SQUARE(200),
+        .size = gui::StyleSize::RECT(200, 155),
         .layout_row_pad = 10,
     },
     .image = {
@@ -25,13 +27,15 @@ constexpr AppLauncherIcon::Data STYLESHEET_410_502_DARK_APP_LAUNCHER_ICON_DATA =
 };
 
 constexpr AppLauncherData STYLESHEET_410_502_DARK_APP_LAUNCHER_DATA = {
+    // Placed by hand (enable_app_launcher_flex_size = 0 in stylesheet.hpp): below the 50 px status bar plus a 50 px
+    // band for the home screen title (see main.cpp), down to the bottom of the screen
     .main = {
-        .y_start = 0,
-        .size = gui::StyleSize::RECT_PERCENT(100, 100),
+        .y_start = 100,
+        .size = gui::StyleSize::RECT_PERCENT(100, 80),
     },
     .table = {
         .default_num = 3,
-        .size = gui::StyleSize::RECT_PERCENT(100, 70),
+        .size = gui::StyleSize::RECT_PERCENT(100, 85),
     },
     .indicator = {
         .main_size = gui::StyleSize::RECT_W_PERCENT(100, 20),

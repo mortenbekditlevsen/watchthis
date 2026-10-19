@@ -42,7 +42,10 @@ bool StatusBar::begin(lv_obj_t *parent)
     ESP_UTILS_CHECK_FALSE_RETURN(!checkMainInitialized(), false, "Already initialized");
 
     ESP_UTILS_CHECK_FALSE_GOTO(beginMain(parent), err, "Begin main failed");
-    ESP_UTILS_CHECK_FALSE_GOTO(beginWifi(), err, "Begin wifi failed");
+    // Local change: the flag used to only skip the icon's calibration, the icon was created anyway
+    if (_data.flags.enable_wifi_icon) {
+        ESP_UTILS_CHECK_FALSE_GOTO(beginWifi(), err, "Begin wifi failed");
+    }
     ESP_UTILS_CHECK_FALSE_GOTO(beginBattery(), err, "Begin battery failed");
     ESP_UTILS_CHECK_FALSE_GOTO(beginClock(), err, "Begin clock failed");
 

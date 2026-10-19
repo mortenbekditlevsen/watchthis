@@ -17,13 +17,13 @@
 #include "ui/ui.h"
 #include "esp_brookesia_app_squareline_demo.hpp"
 
-#define APP_NAME "Squareline"
+#define APP_NAME "Ur"
 
 using namespace std;
 using namespace esp_brookesia::gui;
 using namespace esp_brookesia::systems;
 
-LV_IMG_DECLARE(esp_brookesia_app_icon_launcher_squareline_112_112);
+LV_IMG_DECLARE(esp_brookesia_app_icon_launcher_clock_112_112);
 
 namespace {
 
@@ -110,7 +110,7 @@ SquarelineDemo *SquarelineDemo::requestInstance(bool use_status_bar, bool use_na
 }
 
 SquarelineDemo::SquarelineDemo(bool use_status_bar, bool use_navigation_bar):
-    App(APP_NAME, &esp_brookesia_app_icon_launcher_squareline_112_112, false, use_status_bar, use_navigation_bar)
+    App(APP_NAME, &esp_brookesia_app_icon_launcher_clock_112_112, false, use_status_bar, use_navigation_bar)
 {
 }
 

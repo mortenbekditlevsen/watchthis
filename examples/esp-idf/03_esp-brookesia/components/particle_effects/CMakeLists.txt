@@ -3,7 +3,7 @@
 idf_component_register(
     SRCS /dev/null # Swift sources are added below
     INCLUDE_DIRS "include"
-    LDFRAGMENTS "linker.lf"
+    REQUIRES swift_support
 )
 
 idf_build_get_property(target IDF_TARGET)

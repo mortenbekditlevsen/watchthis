@@ -1,0 +1,4 @@
+
+# BLE test client: local virtualenv and pairing key
+tools/.venv/
+tools/.ble_test_client*.json

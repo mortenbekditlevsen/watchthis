@@ -14,6 +14,16 @@
 #include "esp_lib_utils.h"
 #include "./dark/stylesheet.hpp"
 #include "time_sync.hpp"
+#include "pmu.hpp"
+#include "audio_power.hpp"
+#include "power_manager.hpp"
+#include "file_store.h"
+#include "nvs_flash.h"
+#include "ble_sync.h"
+#include "step_counter.h"
+#include "music_player.h"
+#include "watch_fonts.h"
+#include "watch_name.hpp"
 
 using namespace esp_brookesia;
 using namespace esp_brookesia::gui;
@@ -22,7 +32,7 @@ using namespace esp_brookesia::systems::phone;
 #define LVGL_PORT_INIT_CONFIG() \
     {                               \
         .task_priority = 4,       \
-        .task_stack = 10 * 1024,       \
+        .task_stack = 12 * 1024,  /* + LVGL's TJPGD decoder needs 4 KB of stack on top */ \
         .task_affinity = -1,      \
         .task_max_sleep_ms = 500, \
         .timer_period_ms = 5,     \
@@ -30,9 +40,81 @@ using namespace esp_brookesia::systems::phone;
 
 constexpr bool EXAMPLE_SHOW_MEM_INFO = false;
 
+constexpr uint32_t BATTERY_UPDATE_S = 30;
+constexpr uint32_t STEPS_SAVE_S = 60 * 60;
+
+// App opened at power-on (by its registry name); the launcher is one swipe up away
+constexpr const char *BOOT_APP_NAME = "Ur";
+
+// Launcher order (registry names, i.e. the app titles), 4 per page; apps not listed follow in registration order
+static const char *const APP_ORDER[] = {"Ur", "Skridt", "Katte", "Musik", "Partikler", "Det lille spil", "Synk"};
+
+// The watch's name is the home screen title, shown in the band between the status bar and the app launcher (see
+// dark/app_launcher_data.hpp). It's stored on the watch (watch_name.cpp); this is only the initial name of a watch
+// without one, overridable at build time with the HOME_TITLE environment variable (see CMakeLists.txt)
+#ifndef HOME_TITLE_TEXT
+#define HOME_TITLE_TEXT "Bertha"
+#endif
+constexpr const char *INITIAL_WATCH_NAME = HOME_TITLE_TEXT;
+constexpr int32_t HOME_TITLE_Y = 58;
+constexpr int32_t HOME_TITLE_WIDTH = 380;
+
+static Phone *phone_instance = nullptr;
+static int watch_app_id = -1;   // The boot app ("Ur"), -1 = not installed
+
+static bool send_app_event(int id, systems::base::Context::AppEventType type)
+{
+    systems::base::Context::AppEventData event = {
+        .id = id,
+        .type = type,
+        .data = nullptr,
+    };
+    return phone_instance->sendAppEvent(&event);
+}
+
+// Power key as a back button (called by the power manager with the LVGL lock held): an open app closes (back to the
+// home screen), the home screen opens the watch; in the watch it returns false and the watch goes to sleep
+static bool on_power_key(void)
+{
+    auto *app = phone_instance->getManager().getActiveApp();
+    if (app == nullptr) {
+        return (watch_app_id >= 0) && send_app_event(watch_app_id, systems::base::Context::AppEventType::START);
+    }
+    if (app->getId() == watch_app_id) {
+        return false;
+    }
+    return send_app_event(app->getId(), systems::base::Context::AppEventType::STOP);
+}
+
 extern "C" void app_main(void)
 {
     ESP_UTILS_LOGI("Display ESP-Brookesia phone demo");
+
+    /* Power rails first: the PMU keeps its settings across power-off, so restore anything left switched off */
+    pmu_ensure_rails();
+
+    /* NVS: time zone, BLE pairing */
+    esp_err_t nvs_ret = nvs_flash_init();
+    if ((nvs_ret == ESP_ERR_NVS_NO_FREE_PAGES) || (nvs_ret == ESP_ERR_NVS_NEW_VERSION_FOUND)) {
+        ESP_UTILS_CHECK_ERROR_EXIT(nvs_flash_erase(), "Erase NVS failed");
+        nvs_ret = nvs_flash_init();
+    }
+    ESP_UTILS_CHECK_ERROR_EXIT(nvs_ret, "Init NVS failed");
+
+    /* Time zone + time from the RTC chip, before the UI shows any time; the paired phone can set it via BLE */
+    time_sync_start();
+    ble_sync_set_time_handler([](int64_t utc, const char *tz) {
+        return time_sync_set(static_cast<time_t>(utc), tz);
+    });
+
+    /* The watch's name (home screen title); the paired phone can change it via BLE */
+    watch_name_init(INITIAL_WATCH_NAME);
+    ble_sync_set_name_handler([](const char *name) {
+        return watch_name_set(name);
+    });
+    ble_sync_get_name_handler([]() {
+        return watch_name_get();
+    });
 
     bsp_display_cfg_t cfg = {
         .lvgl_port_cfg = LVGL_PORT_INIT_CONFIG(),
@@ -82,7 +164,32 @@ extern "C" void app_main(void)
         /* Init and install apps from registry */
         std::vector<systems::base::Manager::RegistryAppInfo> inited_apps;
         ESP_UTILS_CHECK_FALSE_EXIT(phone->initAppFromRegistry(inited_apps), "Init app registry failed");
-        ESP_UTILS_CHECK_FALSE_EXIT(phone->installAppFromRegistry(inited_apps), "Install app registry failed");
+        std::vector<std::string> app_order(std::begin(APP_ORDER), std::end(APP_ORDER));
+        ESP_UTILS_CHECK_FALSE_EXIT(phone->installAppFromRegistry(inited_apps, &app_order),
+                                   "Install app registry failed");
+
+        lv_obj_t *title = lv_label_create(phone->getDisplay().getMainScreen());
+        lv_obj_set_width(title, HOME_TITLE_WIDTH);
+        lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
+        lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_font(title, &watch_font_danish_28, 0);
+        watch_name_attach_label(title);
+        lv_obj_set_style_text_color(title, lv_color_white(), 0);
+        lv_obj_align(title, LV_ALIGN_TOP_MID, 0, HOME_TITLE_Y);
+
+        /* Start in the boot app instead of the launcher */
+        phone_instance = phone;
+        bool boot_app_started = false;
+        for (auto &[name, app] : inited_apps) {
+            if ((name == BOOT_APP_NAME) && app) {
+                watch_app_id = app->getId();
+                boot_app_started = send_app_event(watch_app_id, systems::base::Context::AppEventType::START);
+                break;
+            }
+        }
+        if (!boot_app_started) {
+            ESP_UTILS_LOGW("Boot app '%s' not started, staying on the launcher", BOOT_APP_NAME);
+        }
 
         /* Create a timer to update the clock */
         lv_timer_create([](lv_timer_t *t) {
@@ -99,11 +206,57 @@ extern "C" void app_main(void)
                 phone->getDisplay().getStatusBar()->setClock(timeinfo.tm_hour, timeinfo.tm_min),
                 "Refresh status bar failed"
             );
+
+            // Battery from the PMU's fuel gauge (first update shortly after boot, and right away on USB plug/unplug)
+            static uint32_t seconds = BATTERY_UPDATE_S - 2;
+            static bool last_vbus = false;
+            seconds++;
+            const bool vbus = pmu_vbus_present();
+            if ((seconds % BATTERY_UPDATE_S == 0) || (vbus != last_vbus)) {
+                last_vbus = vbus;
+                PmuBattery battery;
+                auto *status_bar = phone->getDisplay().getStatusBar();
+                if (pmu_battery(&battery) && battery.present && (battery.percent >= 0)) {
+                    status_bar->showBatteryIcon();
+                    status_bar->setBatteryPercent(battery.charging, battery.percent);
+                } else if (pmu_battery(&battery) && !battery.present) {
+                    status_bar->hideBatteryIcon();
+                }
+            }
+            if (seconds % STEPS_SAVE_S == 0) {
+                step_counter_save();
+            }
         }, 1000, phone);
     }
 
-    /* Restore the clock from the RTC, then sync it once over Wi-Fi via SNTP (configure in menuconfig) */
-    time_sync_start();
+    ESP_UTILS_LOGI("Free internal heap after UI setup: %u KB (largest block %u KB)",
+                   (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+                   (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) / 1024));
+
+    /* User files (photos, music) */
+    if (!file_store_mount()) {
+        ESP_UTILS_LOGE("File store not available");
+    }
+
+    /* Step counter (accelerometer FIFO; keeps counting while asleep) */
+    if (!step_counter_init()) {
+        ESP_UTILS_LOGE("Step counter not available");
+    }
+
+    /* Audio chips (on the main 3.3 V rail) into low power until something plays audio */
+    audio_power_down();
+
+    /* MP3 playback (Musik); the audio hardware is only woken up when something plays */
+    if (!music_player_init()) {
+        ESP_UTILS_LOGE("Music player not available");
+    }
+
+    /* Power button: back (app → home → watch), then sleep; also sleep after a while idle on the home screen */
+    if (pmu_init()) {
+        power_manager_start(phone->getDisplay().getMainScreen(), on_power_key);
+    } else {
+        ESP_UTILS_LOGE("Power button not available, sleep disabled");
+    }
 
     if constexpr (EXAMPLE_SHOW_MEM_INFO) {
         esp_utils::thread_config_guard thread_config({

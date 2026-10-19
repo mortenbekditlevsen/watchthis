@@ -183,16 +183,8 @@ void ui_event_screen_clock(lv_event_t *e)
         upanim_Animation(ui_clock_panel_clock_panel, 100);
         upanim_Animation(ui_clock_label_clock_number, 300);
         upanim_Animation(ui_clock_small_label_date, 200);
-        scrolldot_Animation(ui_clock_scrolldots_scrolldots, 0);
     }
-    if (event_code == LV_EVENT_GESTURE &&  lv_indev_get_gesture_dir(lv_indev_active()) == LV_DIR_LEFT) {
-        lv_indev_wait_release(lv_indev_active());
-        _ui_screen_change(&ui_screen_call, LV_SCR_LOAD_ANIM_FADE_ON, 10, 0, &ui_screen_call_screen_init);
-    }
-    if (event_code == LV_EVENT_GESTURE &&  lv_indev_get_gesture_dir(lv_indev_active()) == LV_DIR_RIGHT) {
-        lv_indev_wait_release(lv_indev_active());
-        _ui_screen_change(&ui_screen_alarm, LV_SCR_LOAD_ANIM_FADE_ON, 0, 0, &ui_screen_alarm_screen_init);
-    }
+    // Ur: only the watch face; the swipes to the call/alarm screens are gone
     if (event_code == LV_EVENT_SCREEN_LOAD_START) {
         hour_Animation(ui_clock_image_hour, 200);
         min_Animation(ui_clock_image_min, 400);
@@ -326,12 +318,10 @@ void phone_app_squareline_ui_init(void)
     lv_display_t *dispp = lv_display_get_default();
     lv_theme_t *theme = lv_theme_simple_init(dispp);
     lv_disp_set_theme(dispp, theme);
-    ui_screen_splash_screen_init();
+    // Ur: only the watch face (no splash, call, chat, music, weather or alarm screens), which also saves their RAM
     ui_screen_clock_screen_init();
-    ui_screen_call_screen_init();
-    ui_screen_chat_screen_init();
-    ui_screen_music_player_screen_init();
-    ui_screen_weather_screen_init();
-    ui_screen_alarm_screen_init();
-    lv_disp_load_scr(ui_screen_splash);
+    lv_obj_add_flag(ui_clock_scrolldots_scrolldots, LV_OBJ_FLAG_HIDDEN);   // Page dots: there's only one page
+    // Let the watch fall asleep after the idle timeout here too (POWER_MANAGER_IDLE_SLEEP_FLAG in main/power_manager.hpp)
+    lv_obj_add_flag(ui_screen_clock, LV_OBJ_FLAG_USER_1);
+    lv_disp_load_scr(ui_screen_clock);
 }

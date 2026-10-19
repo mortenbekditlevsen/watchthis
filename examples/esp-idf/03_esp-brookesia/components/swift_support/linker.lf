@@ -1,3 +1,5 @@
+# Places Embedded Swift's extra sections (incl. the linker-generated .got.plt, hence 'archive: *'). Shared by every
+# Swift component (particle_effects, thelittlegame) -- a fragment may only be defined once per firmware.
 [sections:flash_text_swift]
 entries:
     .swift_modhash+

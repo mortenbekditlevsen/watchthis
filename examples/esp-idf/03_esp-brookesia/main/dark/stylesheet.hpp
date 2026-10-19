@@ -36,7 +36,7 @@ constexpr Display::Data STYLESHEET_410_502_DARK_DISPLAY_DATA = {
     .flags = {
         .enable_status_bar = 1,
         .enable_navigation_bar = 1,
-        .enable_app_launcher_flex_size = 1,
+        .enable_app_launcher_flex_size = 0,   // Launcher is placed in app_launcher_data.hpp, leaving room for a title
         .enable_recents_screen = 1,
         .enable_recents_screen_flex_size = 1,
     },

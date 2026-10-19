@@ -11,7 +11,7 @@
 #include "particle.h"
 #include "esp_brookesia_app_particles.hpp"
 
-#define APP_NAME "Particles"
+#define APP_NAME "Partikler"
 
 // The Swift simulation's timestep (tickDt in ParticleEffects.swift) assumes this period
 constexpr uint32_t PARTICLE_TICK_MS = 50;

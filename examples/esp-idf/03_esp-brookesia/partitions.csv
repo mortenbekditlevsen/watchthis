@@ -1,5 +1,7 @@
-# Name,   Type, SubType, Offset,  Size, Flags
+# Name,   Type, SubType,  Offset,  Size, Flags
 # Note: if you have increased the bootloader size, make sure to update the offsets to avoid overlap
-nvs,      data, nvs,     ,         0x6000,
-phy_init, data, phy,     ,         0x1000,
-factory,  app,  factory, ,         4M,
+nvs,      data, nvs,      ,        0x6000,
+phy_init, data, phy,      ,        0x1000,
+factory,  app,  factory,  ,        5M,
+# User files (photos, music) on LittleFS; see components/file_store. Takes the rest of the 16 MB flash.
+store,    data, littlefs, ,        0xAF0000,
