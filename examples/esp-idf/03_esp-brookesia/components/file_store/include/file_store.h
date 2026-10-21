@@ -23,6 +23,8 @@ extern "C" {
 typedef enum {
     FILE_STORE_PHOTO = 0,   /* <root>/photos/<id>.jpg */
     FILE_STORE_MUSIC,       /* <root>/music/<id>.mp3 */
+    FILE_STORE_FACE,        /* <root>/faces/<id>.wf: a watch face (components/watch_faces) */
+    FILE_STORE_FACE_ASSET,  /* <root>/assets/<id>.ast: PNG/JPEG background or LVGL binfont used by faces */
     FILE_STORE_KIND_MAX,
 } file_store_kind_t;
 
@@ -41,6 +43,15 @@ typedef enum {
     FILE_STORE_ERR_CHECK,       /* Size, CRC or file format doesn't match */
     FILE_STORE_ERR_NOT_FOUND,
 } file_store_err_t;
+
+/* Extra check of an upload at commit (after size, CRC and magic bytes passed); `path` is the complete temporary file.
+ * Called with the store locked: don't call other file_store functions from it. */
+typedef bool (*file_store_check_cb_t)(file_store_kind_t kind, const char *path);
+/* A file was stored (committed) or removed. Called with the store locked from the uploading task: keep it short. */
+typedef void (*file_store_change_cb_t)(file_store_kind_t kind, const char *id, bool removed);
+
+/* One of each; for kinds that need more than a magic-bytes check, and to notice new files (watch faces) */
+void file_store_set_hooks(file_store_check_cb_t check, file_store_change_cb_t changed);
 
 /* Mount the partition (once; later calls just return the result). Formats it if it can't be mounted. */
 bool file_store_mount(void);

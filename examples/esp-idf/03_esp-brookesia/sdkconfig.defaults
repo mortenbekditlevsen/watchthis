@@ -53,3 +53,11 @@ CONFIG_BT_NIMBLE_EXT_ADV=n
 CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=512
 CONFIG_BT_NIMBLE_HCI_EVT_BUF_SIZE=70
 CONFIG_LV_USE_QRCODE=y
+# Watch faces (components/watch_faces): gradients at any angle and radial ones, with up to 8 stops; LVGL reads
+# face fonts and prepared background images from the file store through the stdio driver ("S:/store/...")
+CONFIG_LV_USE_DRAW_SW_COMPLEX_GRADIENTS=y
+CONFIG_LV_GRADIENT_MAX_STOPS=8
+CONFIG_LV_USE_FS_STDIO=y
+CONFIG_LV_FS_STDIO_LETTER=83
+CONFIG_LV_FS_STDIO_PATH=""
+CONFIG_LV_FS_STDIO_CACHE_SIZE=0

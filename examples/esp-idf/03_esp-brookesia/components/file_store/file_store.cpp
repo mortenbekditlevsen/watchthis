@@ -18,8 +18,8 @@ static const char *TAG = "FileStore";
 
 static constexpr const char *PARTITION_LABEL = "store";
 
-static const char *const KIND_DIR[FILE_STORE_KIND_MAX] = {"photos", "music"};
-static const char *const KIND_EXT[FILE_STORE_KIND_MAX] = {".jpg", ".mp3"};
+static const char *const KIND_DIR[FILE_STORE_KIND_MAX] = {"photos", "music", "faces", "assets"};
+static const char *const KIND_EXT[FILE_STORE_KIND_MAX] = {".jpg", ".mp3", ".wf", ".ast"};
 static constexpr const char *NAME_EXT = ".nm";      // Sidecar with the display name
 static constexpr const char *PART_EXT = ".part";    // Upload in progress
 static constexpr size_t SPACE_MARGIN = 64 * 1024;   // Keep LittleFS some room for metadata
@@ -27,6 +27,8 @@ static constexpr size_t UPLOAD_BUFFER_SIZE = 4096;  // Batch the small BLE chunk
 
 static SemaphoreHandle_t lock = nullptr;
 static bool mounted = false;
+static file_store_check_cb_t check_cb = nullptr;
+static file_store_change_cb_t change_cb = nullptr;
 
 struct Upload {
     FILE *file = nullptr;
@@ -38,7 +40,7 @@ struct Upload {
     uint32_t crc32 = 0;
     uint32_t received = 0;
     uint32_t running_crc = 0;
-    uint8_t head[4] = {};       // First bytes, for the format check
+    uint8_t head[8] = {};       // First bytes, for the format check
 };
 static Upload upload;
 
@@ -61,6 +63,12 @@ bool valid_kind(file_store_kind_t kind)
 }
 
 } // namespace
+
+void file_store_set_hooks(file_store_check_cb_t check, file_store_change_cb_t changed)
+{
+    check_cb = check;
+    change_cb = changed;
+}
 
 bool file_store_mount(void)
 {
@@ -205,9 +213,9 @@ void upload_close(bool remove_part)
     upload.id[0] = '\0';
 }
 
-bool format_ok(file_store_kind_t kind, const uint8_t head[4], uint32_t size)
+bool format_ok(file_store_kind_t kind, const uint8_t head[8], uint32_t size)
 {
-    if (size < 4) {
+    if (size < 8) {
         return false;
     }
     switch (kind) {
@@ -216,6 +224,12 @@ bool format_ok(file_store_kind_t kind, const uint8_t head[4], uint32_t size)
     case FILE_STORE_MUSIC:
         return ((head[0] == 'I') && (head[1] == 'D') && (head[2] == '3')) ||   // ID3 tag
                ((head[0] == 0xFF) && ((head[1] & 0xE0) == 0xE0));             // MPEG frame sync
+    case FILE_STORE_FACE:
+        return memcmp(head, "WFCE", 4) == 0;
+    case FILE_STORE_FACE_ASSET:
+        return (memcmp(head, "\x89PNG", 4) == 0) ||                       // PNG
+               ((head[0] == 0xFF) && (head[1] == 0xD8)) ||                // JPEG SOI
+               (memcmp(head + 4, "head", 4) == 0);                        // LVGL binfont (first table)
     default:
         return false;
     }
@@ -312,6 +326,11 @@ file_store_err_t file_store_upload_commit(void)
 
     char part[FILE_STORE_PATH_MAX], final_path[FILE_STORE_PATH_MAX], name_path[FILE_STORE_PATH_MAX + 4];
     part_path(part, sizeof(part));
+    if ((check_cb != nullptr) && !check_cb(upload.kind, part)) {
+        ESP_LOGW(TAG, "Upload %s rejected by the content check", upload.id);
+        upload_close(true);
+        return FILE_STORE_ERR_CHECK;
+    }
     file_store_path(upload.kind, upload.id, final_path, sizeof(final_path));
     snprintf(name_path, sizeof(name_path), "%s/%s/%s%s", FILE_STORE_ROOT, KIND_DIR[upload.kind], upload.id, NAME_EXT);
     unlink(final_path);
@@ -328,6 +347,9 @@ file_store_err_t file_store_upload_commit(void)
         }
     }
     ESP_LOGI(TAG, "Stored %s/%s", KIND_DIR[upload.kind], upload.id);
+    if (change_cb != nullptr) {
+        change_cb(upload.kind, upload.id, false);
+    }
     upload_close(false);
 
     return FILE_STORE_OK;
@@ -370,6 +392,9 @@ file_store_err_t file_store_remove(file_store_kind_t kind, const char *id)
     }
     unlink(name_path);
     ESP_LOGI(TAG, "Removed %s/%s", KIND_DIR[kind], id);
+    if (change_cb != nullptr) {
+        change_cb(kind, id, true);
+    }
 
     return FILE_STORE_OK;
 }

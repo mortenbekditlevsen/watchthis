@@ -19,14 +19,26 @@ private let firmwareVersion = "1.0.0"
 private let apiVersion = 1
 private let photoWidth = 410    // The display; photos are shown 1:1 (baseline JPEG)
 private let photoHeight = 502
-private let capabilities = ["SetTime", "StorageInfo", "List", "FileUpload", "FileDelete", "SetName", "GetName"]
+private let capabilities = ["SetTime", "StorageInfo", "List", "FileUpload", "FileDelete", "SetName", "GetName",
+                            "FileRead"]
+private let faceFormatVersion = 1   // WatchFaceKit's FaceFile.version
 
-private let deviceInfoBytes: [UInt8] = {
-    let caps = capabilities.map { "\"\($0)\"" }.joined(separator: ",")
+/// Built on first read (after the face handlers are installed at boot)
+private var deviceInfoBytes: [UInt8] = []
+
+private func makeDeviceInfo() -> [UInt8] {
+    var caps = capabilities
+    var face = ""
+    if let handlers = faceHandlers, let features = handlers.features_json {
+        caps.append("WatchFaces")
+        face = ",\"face\":{\"format\":\(faceFormatVersion),\"w\":\(photoWidth),\"h\":\(photoHeight)," +
+            "\"features\":\(String(cString: features))}"
+    }
+    let capsJSON = caps.map { "\"\($0)\"" }.joined(separator: ",")
     // No personal data here (readable without pairing): the watch's name is only available via GetName
-    return Array(("{\"version\":\"\(firmwareVersion)\",\"apiVersion\":\(apiVersion),\"capabilities\":[\(caps)]," +
-                  "\"photo\":{\"w\":\(photoWidth),\"h\":\(photoHeight)}}").utf8)
-}()
+    return Array(("{\"version\":\"\(firmwareVersion)\",\"apiVersion\":\(apiVersion),\"capabilities\":[\(capsJSON)]," +
+                  "\"photo\":{\"w\":\(photoWidth),\"h\":\(photoHeight)}\(face)}").utf8)
+}
 
 /// ATT error for a frame that doesn't decrypt (no session, bad tag, replayed counter): an application error code,
 /// not "insufficient authentication/encryption", which would make iOS start BLE-level pairing (a system dialog)
@@ -45,11 +57,16 @@ private enum Opcode: UInt8 {
     case fileDelete = 0x07      // App -> device: kind(1) id(rest)
     case setName = 0x08         // App -> device: name(UTF-8, 1..32 bytes; the home screen title)
     case getName = 0x09         // App -> device: (empty)
+    case setFaceOrder = 0x0A    // App -> device: active(1) count(1) {id_len(1) id}*
+    case getFaceState = 0x0B    // App -> device: (empty)
+    case fileRead = 0x0C        // App -> device: kind(1) offset(4) length(2) id(rest)
     case result = 0x80          // Device -> app: request opcode(1) status(1)
     case storageInfoReply = 0x81    // Device -> app: total(4) used(4) photos(2) music(2)
     case listReply = 0x82           // Device -> app: kind(1) start(2) total(2) count(1) {id_len(1) id size(4) name_len(1) name}*
     case progress = 0x83            // Device -> app: received(4)
     case nameReply = 0x84           // Device -> app: name(UTF-8, rest)
+    case faceStateReply = 0x85      // Device -> app: active(1) count(1) {id_len id}* builtin_count(1) {id_len id}*
+    case fileData = 0x86            // Device -> app: status(1) offset(4) total(4) data(rest)
 }
 
 /// Mirrors file_store_err_t (0..6), plus protocol-level errors.
@@ -84,6 +101,7 @@ private let maxListReply = 400      // Plaintext bytes per ListReply (fits a 512
 
 private let maxTimeZoneLength = 63
 private let maxNameLength = 32
+private let maxFileRead = 400       // Data bytes per FileData reply (fits a 512-byte MTU with the envelope)
 
 private func readInt64LE(_ bytes: [UInt8], at offset: Int) -> Int64 {
     var value: UInt64 = 0
@@ -113,6 +131,8 @@ private func fileKind(_ byte: UInt8) -> file_store_kind_t? {
     switch byte {
     case 0: return FILE_STORE_PHOTO
     case 1: return FILE_STORE_MUSIC
+    case 2: return FILE_STORE_FACE
+    case 3: return FILE_STORE_FACE_ASSET
     default: return nil
     }
 }
@@ -176,6 +196,37 @@ private func sendList(connHandle: UInt16, kind: file_store_kind_t, kindByte: UIn
     appendLE(UInt16(total), to: &reply)
     reply.append(UInt8(count))
     reply.append(contentsOf: body)
+    sendReply(connHandle: connHandle, reply)
+}
+
+private func sendFileData(connHandle: UInt16, kind: file_store_kind_t, offset: UInt32, length: Int, id: [UInt8]) {
+    var reply: [UInt8] = [Opcode.fileData.rawValue]
+    func fail(_ status: ResultStatus) {
+        reply.append(status.rawValue)
+        appendLE(offset, to: &reply)
+        appendLE(UInt32(0), to: &reply)
+        sendReply(connHandle: connHandle, reply)
+    }
+    var path = [CChar](repeating: 0, count: Int(FILE_STORE_PATH_MAX))
+    let idC = id.map { CChar(bitPattern: $0) } + [0]
+    guard file_store_id_valid(idC), file_store_path(kind, idC, &path, path.count),
+          let file = fopen(path, "rb") else {
+        fail(.notFound)
+        return
+    }
+    defer { fclose(file) }
+    fseek(file, 0, SEEK_END)
+    let total = UInt32(max(0, ftell(file)))
+    guard offset <= total, fseek(file, Int(offset), SEEK_SET) == 0 else {
+        fail(.invalid)
+        return
+    }
+    var data = [UInt8](repeating: 0, count: min(length, maxFileRead, Int(total - offset)))
+    let n = data.isEmpty ? 0 : fread(&data, 1, data.count, file)
+    reply.append(ResultStatus.ok.rawValue)
+    appendLE(offset, to: &reply)
+    appendLE(total, to: &reply)
+    reply.append(contentsOf: data.prefix(n))
     sendReply(connHandle: connHandle, reply)
 }
 
@@ -283,7 +334,40 @@ private func handleCommand(_ bytes: [UInt8], connHandle: UInt16) -> Int32 {
         sendReply(connHandle: connHandle, reply)
         return 0
 
-    case .result, .storageInfoReply, .listReply, .progress, .nameReply:
+    case .setFaceOrder:
+        var status = ResultStatus.invalid
+        if let handlers = faceHandlers, let setOrder = handlers.set_order {
+            status = payload.withUnsafeBufferPointer {
+                ResultStatus(rawValue: setOrder($0.baseAddress, $0.count)) ?? .failed
+            }
+        }
+        sendResult(connHandle: connHandle, opcode: .setFaceOrder, status: status)
+        return 0
+
+    case .getFaceState:
+        guard let handlers = faceHandlers, let getState = handlers.get_state else {
+            sendResult(connHandle: connHandle, opcode: .getFaceState, status: .invalid)
+            return 0
+        }
+        var buf = [UInt8](repeating: 0, count: maxListReply)
+        let n = buf.withUnsafeMutableBufferPointer { getState($0.baseAddress, $0.count) }
+        guard n >= 0 else {
+            sendResult(connHandle: connHandle, opcode: .getFaceState, status: .failed)
+            return 0
+        }
+        sendReply(connHandle: connHandle, [Opcode.faceStateReply.rawValue] + buf.prefix(Int(n)))
+        return 0
+
+    case .fileRead:
+        guard payload.count >= 8, let kind = fileKind(payload[0]) else {
+            return Int32(BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN)
+        }
+        let offset = readUInt32LE(payload, at: 1)
+        let length = Int(payload[5]) | (Int(payload[6]) << 8)
+        sendFileData(connHandle: connHandle, kind: kind, offset: offset, length: length, id: Array(payload[7...]))
+        return 0
+
+    case .result, .storageInfoReply, .listReply, .progress, .nameReply, .faceStateReply, .fileData:
         return Int32(BLE_ATT_ERR_REQ_NOT_SUPPORTED)    // Device -> app only
     }
 }
@@ -364,6 +448,9 @@ func device_info_access_cb(
     arg: UnsafeMutableRawPointer?
 ) -> Int32 {
     guard let ctxt, ctxt.pointee.op == UInt8(BLE_GATT_ACCESS_OP_READ_CHR) else { return 1 }
+    if deviceInfoBytes.isEmpty {
+        deviceInfoBytes = makeDeviceInfo()
+    }
     let result = deviceInfoBytes.withUnsafeBytes { buf in
         r_os_mbuf_append(ctxt.pointee.om, buf.baseAddress, UInt16(buf.count))
     }

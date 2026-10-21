@@ -10,6 +10,7 @@ private var statusCallback: ble_sync_status_cb_t? = nil
 private(set) var setTimeHandler: ble_sync_set_time_cb_t? = nil
 private(set) var setNameHandler: ble_sync_set_name_cb_t? = nil
 private(set) var getNameHandler: ble_sync_get_name_cb_t? = nil
+private(set) var faceHandlers: ble_sync_face_handlers_t? = nil
 
 /// The connected central (we only ever have one: advertising stops while connected).
 private var currentConn: UInt16 = UInt16(BLE_HS_CONN_HANDLE_NONE)
@@ -192,6 +193,11 @@ public func ble_sync_set_name_handler(_ handler: ble_sync_set_name_cb_t?) {
 @_cdecl("ble_sync_get_name_handler")
 public func ble_sync_get_name_handler(_ handler: ble_sync_get_name_cb_t?) {
     getNameHandler = handler
+}
+
+@_cdecl("ble_sync_set_face_handlers")
+public func ble_sync_set_face_handlers(_ handlers: UnsafePointer<ble_sync_face_handlers_t>?) {
+    faceHandlers = handlers?.pointee
 }
 
 @_cdecl("ble_sync_start")

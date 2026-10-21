@@ -5,6 +5,7 @@
 #define __BLE_SYNC_H__
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -49,6 +50,19 @@ typedef const char *(*ble_sync_get_name_cb_t)(void);
 
 /* Install the GetName handler (once, at boot). */
 void ble_sync_get_name_handler(ble_sync_get_name_cb_t cb);
+
+/* Watch faces (components/watch_faces); called from the BLE host task. Layouts in docs/watch-ble-protocol.md §12. */
+typedef struct {
+    /* Fill `buf` with a FaceStateReply payload (after the opcode); returns its length, or -1 on error */
+    int (*get_state)(uint8_t *buf, size_t max);
+    /* Apply a SetFaceOrder payload; returns a Result status (0 = OK, 1 = failed, 2 = invalid) */
+    uint8_t (*set_order)(const uint8_t *payload, size_t len);
+    /* JSON array of the face features this firmware can draw, for DEVICE_INFO; must stay valid */
+    const char *features_json;
+} ble_sync_face_handlers_t;
+
+/* Install the watch face handlers (once, at boot, before ble_sync_start). The struct is copied. */
+void ble_sync_set_face_handlers(const ble_sync_face_handlers_t *handlers);
 
 /* Start BLE: init NimBLE, register the GATT service and advertise; opens a pairing window if no phone is paired
  * yet. Returns false if BLE couldn't be started (e.g. out of memory). */

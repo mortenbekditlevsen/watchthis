@@ -1,7 +1,7 @@
 # Watch BLE protocol (v1)
 
-How a phone app talks to the watch over Bluetooth LE: pairing, time sync, the watch's name, and uploading photos and
-MP3s. Everything here is verified against the firmware (`components/ble_sync`, `components/pairing`,
+How a phone app talks to the watch over Bluetooth LE: pairing, time sync, the watch's name, uploading photos and
+MP3s, and managing watch faces (§12). Everything here is verified against the firmware (`components/ble_sync`, `components/pairing`,
 `components/file_store`) with the reference client `tools/ble_test_client.py`, which does exactly what an app has to
 do and is the best place to look when something here is unclear.
 
@@ -54,9 +54,13 @@ available encrypted, via GetName):
 
 ```json
 {"version":"1.0.0","apiVersion":1,
- "capabilities":["SetTime","StorageInfo","List","FileUpload","FileDelete","SetName","GetName"],
- "photo":{"w":410,"h":502}}
+ "capabilities":["SetTime","StorageInfo","List","FileUpload","FileDelete","SetName","GetName","FileRead",
+                 "WatchFaces"],
+ "photo":{"w":410,"h":502},
+ "face":{"format":1,"w":410,"h":502,"features":["bg.color","bg.linearGradient","analogClock","steps",…]}}
 ```
+
+`face` is only present with the `WatchFaces` capability (§12).
 
 Check `apiVersion` (this document describes 1) and use `capabilities` to enable features; future firmware only
 adds capabilities and opcodes.
@@ -166,6 +170,9 @@ Write to CMD **with response**. Replies arrive as encrypted CMD notifications. M
 | `0x07` | FileDelete | kind(1) id(rest) | Result |
 | `0x08` | SetName | name(1–32 bytes) | Result |
 | `0x09` | GetName | (empty) | NameReply |
+| `0x0A` | SetFaceOrder | active(1) count(1) { id_len(1) id }… | Result |
+| `0x0B` | GetFaceState | (empty) | FaceStateReply |
+| `0x0C` | FileRead | kind(1) offset(4) length(2) id(rest) | FileData |
 
 Replies (watch → app):
 
@@ -176,6 +183,8 @@ Replies (watch → app):
 | `0x82` | ListReply | kind(1) start(2) total(2) count(1), then `count` × { id_len(1) id size(4) name_len(1) name } |
 | `0x83` | Progress | received(4) — upload bytes stored so far (§8) |
 | `0x84` | NameReply | name(rest) |
+| `0x85` | FaceStateReply | active(1) count(1) { id_len(1) id }… builtin_count(1) { id_len(1) id }… |
+| `0x86` | FileData | status(1) offset(4) total(4) data(rest) |
 
 Result status codes:
 
@@ -191,7 +200,7 @@ Result status codes:
 
 Notes:
 
-- **kind:** 0 = photo, 1 = music.
+- **kind:** 0 = photo, 1 = music, 2 = watch face, 3 = face asset (§12).
 - **SetTime:** the watch stores the time in its RTC and the TZ string in flash. iOS has no POSIX TZ API; derive
   the string from `TimeZone` (standard/daylight offsets and transition rules) or map common IANA zones, e.g.
   `Europe/Copenhagen` → `CET-1CEST,M3.5.0,M10.5.0/3`. Note the POSIX sign convention (`CET-1` = UTC+1).
@@ -318,3 +327,34 @@ wire app->watch, ctr 1       01000000ebcc9da4e3572187a9cae801cde9faf57d44bfe07d2
   Don't transcode on the phone: iOS has no MP3 encoder (AVFoundation writes AAC, which the watch can't play).
   Instead, before uploading, compare the file size with StorageInfo's free space and warn if it won't fit, and
   point users to "Fitting more music" (§8) in the help text.
+
+## 12. Watch faces
+
+The watch shows one face at a time; the user swipes left/right between the faces in the face order. The format of a
+face file is in [watch-face-format.md](watch-face-format.md); the phone app should use WatchFaceKit
+(`components/watch_faces/WatchFaceKit`) to build and encode faces rather than writing the format by hand.
+
+| | Face (kind 2) | Face asset (kind 3) |
+|---|---|---|
+| Content | A `.wf` face file; checked at commit: it must decode (status 5 otherwise) | A face background (PNG or baseline JPEG, 410 × 502) or font (LVGL binfont, e.g. rasterized on the phone) |
+| Format check | starts with `WFCE` | PNG signature, `FF D8`, or binfont (`head` table) |
+| id | as photos; use the face's own id (tag 1) | as photos; what faces refer to |
+
+Upload and delete with FileBegin/DATA/FileCommit and FileDelete, as for photos (§8). A face refers to its assets
+by id, so upload the assets first, then the face. Replacing an asset (same id) makes the watch prepare it again.
+Deleting assets a face still uses is allowed; the face then falls back to a builtin font / its fallback colour.
+
+**Order:** `SetFaceOrder` sets which faces the user can swipe to, in order, and which one is shown (`active`, an index
+into the list). Ids may name builtin faces (listed in FaceStateReply) and uploaded faces; faces not in the list are
+not shown, which is how builtins are hidden. Ids that don't exist (yet) are ignored when shown. As long as there is no order (a new watch) the
+watch shows its builtins followed by all uploaded faces; once there is one (set by the phone, or saved by the watch
+when the user swipes) a newly uploaded face only shows after it was added with `SetFaceOrder`. The watch updates
+`active` when the user swipes, so read it with `GetFaceState` before changing the order. A typical sync: upload assets → upload face →
+`GetFaceState` → `SetFaceOrder`.
+
+**FileRead** reads up to `length` bytes (at most 400 per reply) from `offset` of a stored file, of any kind; FileData
+has `status` (as Result), the `offset` it read from, the file's `total` size and the data. Read until
+`offset + data length == total`. Use it to pull faces back from a watch (e.g. after reinstalling the app).
+
+Faces are shown in the Ur app, while BLE runs only in Synk; changes made over BLE show the next time Ur opens.
+

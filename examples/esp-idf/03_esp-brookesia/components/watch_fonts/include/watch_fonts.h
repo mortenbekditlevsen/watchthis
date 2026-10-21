@@ -13,6 +13,8 @@ extern "C" {
  * glyphs that fall back to lv_font_montserrat_20/28 for everything else. */
 LV_FONT_DECLARE(watch_font_danish_20);
 LV_FONT_DECLARE(watch_font_danish_28);
+/* 66 px condensed light oblique, ASCII (0x20-0x7F and °); the big digital clock font */
+LV_FONT_DECLARE(watch_font_number_66);
 
 #ifdef __cplusplus
 }

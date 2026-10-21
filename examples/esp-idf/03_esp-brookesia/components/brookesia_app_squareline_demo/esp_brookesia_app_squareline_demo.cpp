@@ -3,10 +3,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#include <cstdio>
-#include <cstring>
-#include <ctime>
-#include <sys/time.h>
 #include "lvgl.h"
 #include "esp_brookesia.hpp"
 #ifdef ESP_UTILS_LOG_TAG
@@ -15,6 +11,7 @@
 #define ESP_UTILS_LOG_TAG "BS:Squareline"
 #include "esp_lib_utils.h"
 #include "ui/ui.h"
+#include "watch_faces.h"
 #include "esp_brookesia_app_squareline_demo.hpp"
 
 #define APP_NAME "Ur"
@@ -25,77 +22,6 @@ using namespace esp_brookesia::systems;
 
 LV_IMG_DECLARE(esp_brookesia_app_icon_launcher_clock_112_112);
 
-namespace {
-
-constexpr uint32_t CLOCK_UPDATE_PERIOD_MS = 100;
-// Anything before this means SNTP has not synced yet and the clock still counts from 1970-01-01
-constexpr int CLOCK_MIN_VALID_YEAR = 2024;
-
-// Tick at which the screen-load animations of the hour/minute hands are done; until then they own the rotation
-uint32_t clock_hands_anim_end_tick = 0;
-
-const char *const WEEKDAY_NAMES[] = {"Søn", "Man", "Tir", "Ons", "Tor", "Fre", "Lør"};
-// Danish abbreviations; "maj" is the full word, so it has no period
-const char *const MONTH_NAMES[] = {
-    "jan.", "feb.", "mar.", "apr.", "maj", "jun.", "jul.", "aug.", "sep.", "okt.", "nov.", "dec."
-};
-
-// Hand images point to 12 o'clock at rotation 0; rotation is in 0.1 degree units
-int32_t clock_hour_angle(const struct tm &t)
-{
-    return (t.tm_hour % 12) * 300 + t.tm_min * 5;
-}
-
-int32_t clock_min_angle(const struct tm &t)
-{
-    return t.tm_min * 60 + t.tm_sec;
-}
-
-void clock_get_local_time(struct tm &t, suseconds_t *usec = nullptr)
-{
-    struct timeval tv;
-
-    gettimeofday(&tv, nullptr);
-    localtime_r(&tv.tv_sec, &t);
-    if (usec != nullptr) {
-        *usec = tv.tv_usec;
-    }
-}
-
-void label_set_text_if_changed(lv_obj_t *label, const char *text)
-{
-    if (strcmp(lv_label_get_text(label), text) != 0) {
-        lv_label_set_text(label, text);
-    }
-}
-
-void clock_update(lv_timer_t *timer)
-{
-    struct tm t;
-    suseconds_t usec;
-    char buf[32];
-
-    clock_get_local_time(t, &usec);
-
-    if (t.tm_year + 1900 < CLOCK_MIN_VALID_YEAR) {
-        label_set_text_if_changed(ui_clock_label_clock_number, "--:--");
-        label_set_text_if_changed(ui_clock_small_label_date, "");
-    } else {
-        snprintf(buf, sizeof(buf), "%02d:%02d", t.tm_hour, t.tm_min);
-        label_set_text_if_changed(ui_clock_label_clock_number, buf);
-        snprintf(buf, sizeof(buf), "%s %d. %s", WEEKDAY_NAMES[t.tm_wday], t.tm_mday, MONTH_NAMES[t.tm_mon]);
-        label_set_text_if_changed(ui_clock_small_label_date, buf);
-    }
-
-    if ((int32_t)(lv_tick_get() - clock_hands_anim_end_tick) >= 0) {
-        lv_image_set_rotation(ui_clock_image_hour, clock_hour_angle(t));
-        lv_image_set_rotation(ui_clock_image_min, clock_min_angle(t));
-    }
-    // Sweep the second hand in 0.6 degree steps
-    lv_image_set_rotation(ui_clock_image_sec, t.tm_sec * 60 + (usec / 100000) * 6);
-}
-
-} // namespace
 
 namespace esp_brookesia::apps {
 
@@ -122,15 +48,9 @@ bool SquarelineDemo::run(void)
 {
     ESP_UTILS_LOGD("Run");
 
-    // Create all UI resources here
-    phone_app_squareline_ui_init();
-
-    // Drive the clock screen from the system time (synced via SNTP); the timer is recorded as an app resource and
-    // deleted when the app closes
-    lv_obj_set_style_text_font(ui_clock_small_label_date, &ui_font_danish_18, LV_PART_MAIN);
-    clock_hands_anim_end_tick = 0;
-    clock_update(nullptr);
-    lv_timer_create(clock_update, CLOCK_UPDATE_PERIOD_MS, nullptr);
+    // The customizable, swipeable watch faces (components/watch_faces). Their screen and update timer are created
+    // here, so the core records them and cleans them up after close()
+    watch_faces_show();
 
     return true;
 }
@@ -145,14 +65,14 @@ bool SquarelineDemo::back(void)
     return true;
 }
 
-// bool SquarelineDemo::close(void)
-// {
-//     ESP_UTILS_LOGD("Close");
+bool SquarelineDemo::close(void)
+{
+    ESP_UTILS_LOGD("Close");
 
-//     /* Do some operations here if needed */
+    watch_faces_hide();
 
-//     return true;
-// }
+    return true;
+}
 
 // bool SquarelineDemo::init()
 // {
@@ -273,10 +193,8 @@ extern "C" {
         lv_anim_set_time(&PropertyAnimation_0, 1000);
         lv_anim_set_user_data(&PropertyAnimation_0, PropertyAnimation_0_user_data);
         lv_anim_set_custom_exec_cb(&PropertyAnimation_0, _ui_anim_callback_set_image_angle);
-        struct tm t;
-        clock_get_local_time(t);
-        lv_anim_set_values(&PropertyAnimation_0, 0, clock_hour_angle(t));
-        clock_hands_anim_end_tick = lv_tick_get() + delay + 1000;
+        // Unused since the watch faces replaced the SquareLine clock screen (components/watch_faces)
+        lv_anim_set_values(&PropertyAnimation_0, 0, 0);
         lv_anim_set_path_cb(&PropertyAnimation_0, lv_anim_path_ease_out);
         lv_anim_set_delay(&PropertyAnimation_0, delay + 0);
         lv_anim_set_deleted_cb(&PropertyAnimation_0, _ui_anim_callback_free_user_data);
@@ -331,10 +249,8 @@ extern "C" {
         lv_anim_set_time(&PropertyAnimation_0, 1000);
         lv_anim_set_user_data(&PropertyAnimation_0, PropertyAnimation_0_user_data);
         lv_anim_set_custom_exec_cb(&PropertyAnimation_0, _ui_anim_callback_set_image_angle);
-        struct tm t;
-        clock_get_local_time(t);
-        lv_anim_set_values(&PropertyAnimation_0, 0, clock_min_angle(t));
-        clock_hands_anim_end_tick = lv_tick_get() + delay + 1000;
+        // Unused since the watch faces replaced the SquareLine clock screen (components/watch_faces)
+        lv_anim_set_values(&PropertyAnimation_0, 0, 0);
         lv_anim_set_path_cb(&PropertyAnimation_0, lv_anim_path_ease_out);
         lv_anim_set_delay(&PropertyAnimation_0, delay + 0);
         lv_anim_set_deleted_cb(&PropertyAnimation_0, _ui_anim_callback_free_user_data);

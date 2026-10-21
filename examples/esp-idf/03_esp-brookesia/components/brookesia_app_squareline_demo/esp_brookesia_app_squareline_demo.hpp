@@ -89,7 +89,7 @@ protected:
      * @return true if successful, otherwise false
      *
      */
-    // bool close(void) override;
+    bool close(void) override;
 
     /**
      * @brief Called when the app starts to install. The app can perform initialization here.

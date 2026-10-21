@@ -24,6 +24,7 @@
 #include "music_player.h"
 #include "watch_fonts.h"
 #include "watch_name.hpp"
+#include "watch_faces.h"
 
 using namespace esp_brookesia;
 using namespace esp_brookesia::gui;
@@ -115,6 +116,24 @@ extern "C" void app_main(void)
     ble_sync_get_name_handler([]() {
         return watch_name_get();
     });
+
+    /* User files (photos, music, watch faces); before the UI, since the boot app (the watch faces) reads them */
+    if (!file_store_mount()) {
+        ESP_UTILS_LOGE("File store not available");
+    }
+
+    /* Watch faces (the "Ur" app): uploaded faces and their order come from the paired phone via BLE */
+    watch_faces_init();
+    watch_faces_set_battery_source([]() {
+        PmuBattery battery;
+        return (pmu_battery(&battery) && battery.present) ? battery.percent : -1;
+    });
+    static const ble_sync_face_handlers_t face_handlers = {
+        .get_state = watch_faces_get_state,
+        .set_order = watch_faces_set_order,
+        .features_json = watch_faces_features_json(),
+    };
+    ble_sync_set_face_handlers(&face_handlers);
 
     bsp_display_cfg_t cfg = {
         .lvgl_port_cfg = LVGL_PORT_INIT_CONFIG(),
@@ -233,10 +252,6 @@ extern "C" void app_main(void)
                    (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
                    (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) / 1024));
 
-    /* User files (photos, music) */
-    if (!file_store_mount()) {
-        ESP_UTILS_LOGE("File store not available");
-    }
 
     /* Step counter (accelerometer FIFO; keeps counting while asleep) */
     if (!step_counter_init()) {

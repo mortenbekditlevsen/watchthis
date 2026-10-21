@@ -38,7 +38,8 @@ get_component_library("lvgl" LVGL_LIB)
 target_compile_options(
     ${LVGL_LIB}
     PUBLIC
-        "-Wno-attributes"
+        # C/C++ only: this is public, so it also reaches Swift components that use LVGL (components/watch_faces)
+        "$<$<COMPILE_LANGUAGE:C,CXX>:-Wno-attributes>"
 )
 # The ESP32-C6 ROM has its own (older, differently laid out) TJPGD, and esp32c6.rom.ld binds jd_prepare/jd_decomp
 # to it, overriding LVGL's copies while the rest of LVGL's TJPGD stays in use -> memory corruption when decoding.

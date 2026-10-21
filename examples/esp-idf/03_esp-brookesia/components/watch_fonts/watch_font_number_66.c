@@ -9,13 +9,10 @@
  * Opts: --bpp 4 --size 66 --font C:/!SVN/SquareLine/trunk/code/editor/examples/Smart_Gadget_240x320/assets/fonts/FuturaStdCondensedLightObl.otf -o C:/!SVN/SquareLine/trunk/code/editor/examples/Smart_Gadget_240x320/assets/fonts\ui_font_Number.c --format lvgl -r 0x20-0x7f --symbols 1234567890:° --no-compress --no-prefilter
  ******************************************************************************/
 
-#include "../ui.h"
+/* From the SquareLine demo (ui_font_Number); the 66 px builtin face font (WatchFaceKit FontRef.builtin(size: 66)) */
+#include "lvgl.h"
 
-#ifndef UI_FONT_NUMBER
-#define UI_FONT_NUMBER 1
-#endif
-
-#if UI_FONT_NUMBER
+#if 1
 
 /*-----------------
  *    BITMAPS
@@ -7218,9 +7215,9 @@ static lv_font_fmt_txt_dsc_t font_dsc = {
 
 /*Initialize a public general font descriptor*/
 #if ( LV_VERSION_CHECK(8, 0, 0) || LV_VERSION_CHECK(9, 0, 0) )
-const lv_font_t ui_font_Number = {
+const lv_font_t watch_font_number_66 = {
 #else
-lv_font_t ui_font_Number = {
+lv_font_t watch_font_number_66 = {
 #endif
     .get_glyph_dsc = lv_font_get_glyph_dsc_fmt_txt,    /*Function pointer to get glyph's data*/
     .get_glyph_bitmap = lv_font_get_bitmap_fmt_txt,    /*Function pointer to get glyph's bitmap*/

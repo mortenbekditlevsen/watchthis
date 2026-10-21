@@ -169,7 +169,8 @@ LV_IMG_DECLARE(ui_img_weather_2_png);    // assets/weather_2.png
 LV_IMG_DECLARE(ui_img_weather_3_png);    // assets/weather_3.png
 
 // FONTS
-LV_FONT_DECLARE(ui_font_Number);
+#include "watch_fonts.h"
+#define ui_font_Number watch_font_number_66   // Moved to components/watch_fonts
 LV_FONT_DECLARE(ui_font_danish_18);
 
 

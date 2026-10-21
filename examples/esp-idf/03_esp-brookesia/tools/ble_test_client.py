@@ -11,10 +11,16 @@ Usage (open the "Synk" app on the watch first):
     tools/.venv/bin/python tools/ble_test_client.py pair 7K2M9XAB      # code shown under the QR code
     tools/.venv/bin/python tools/ble_test_client.py time [--tz CET-1CEST,M3.5.0,M10.5.0/3]
     tools/.venv/bin/python tools/ble_test_client.py info
-    tools/.venv/bin/python tools/ble_test_client.py list photo|music
-    tools/.venv/bin/python tools/ble_test_client.py upload photo|music FILE ID [--name NAME]
-    tools/.venv/bin/python tools/ble_test_client.py delete photo|music ID
+    tools/.venv/bin/python tools/ble_test_client.py list photo|music|face|asset
+    tools/.venv/bin/python tools/ble_test_client.py upload photo|music|face|asset FILE ID [--name NAME]
+    tools/.venv/bin/python tools/ble_test_client.py delete photo|music|face|asset ID
+    tools/.venv/bin/python tools/ble_test_client.py read face|asset ID OUT     # download a file
     tools/.venv/bin/python tools/ble_test_client.py name ["Mit ur"]    # show / set the home screen title
+    tools/.venv/bin/python tools/ble_test_client.py faces              # watch faces: order, active, builtins
+    tools/.venv/bin/python tools/ble_test_client.py face-order ID... [--active N]   # which faces to show, in order
+
+Watch face files (.wf) can be made with WatchFaceKit's CLI: `swift run wfce builtin klassisk klassisk_kopi.wf`
+(in components/watch_faces/WatchFaceKit); assets are PNG/baseline JPEG backgrounds or LVGL binfonts.
 
 The pairing (client id + long-term key) is kept in tools/.ble_test_client.json.
 """
@@ -49,7 +55,7 @@ INFO_LTK = b"watch-ltk-v1"
 CONFIRM_DEVICE = b"watch-confirm-device-v1"
 CONFIRM_CLIENT = b"watch-confirm-client-v1"
 
-KINDS = {"photo": 0, "music": 1}
+KINDS = {"photo": 0, "music": 1, "face": 2, "asset": 3}
 STATUS = {0: "ok", 1: "failed", 2: "invalid", 3: "no space", 4: "busy", 5: "check failed (size/CRC/format)",
           6: "not found"}
 NACK = {1: "not paired", 2: "bad confirm (wrong code?)", 3: "pairing window closed", 4: "rate limited"}
@@ -210,6 +216,45 @@ class Watch:
         await self.command(bytes([0x09]))
         print("Name:", (await self.reply(0x84)).decode())
 
+    async def faces(self):
+        await self.command(bytes([0x0B]))
+        payload = await self.reply(0x85)
+        active, count, i, order = payload[0], payload[1], 2, []
+        for _ in range(count):
+            n = payload[i]
+            order.append(payload[i + 1:i + 1 + n].decode())
+            i += 1 + n
+        builtins = []
+        for _ in range(payload[i]):
+            n = payload[i + 1]
+            builtins.append(payload[i + 2:i + 2 + n].decode())
+            i += 1 + n
+        for index, ident in enumerate(order):
+            print(("* " if index == active else "  ") + ident)
+        print("Builtin:", ", ".join(builtins))
+
+    async def set_face_order(self, ids: list, active: int):
+        payload = bytes([active, len(ids)]) + b"".join(bytes([len(i)]) + i.encode() for i in ids)
+        await self.command(bytes([0x0A]) + payload)
+        await self.result(0x0A)
+        print("Face order set")
+
+    async def read(self, kind: str, ident: str, out: Path):
+        data, offset = b"", 0
+        while True:
+            await self.command(bytes([0x0C, KINDS[kind]]) + struct.pack("<IH", offset, 400) + ident.encode())
+            reply = await self.reply(0x86)
+            status, at, total = reply[0], *struct.unpack("<II", reply[1:9])
+            if status != 0:
+                raise RuntimeError(f"read failed: {STATUS.get(status, status)}")
+            chunk = reply[9:]
+            data += chunk
+            offset += len(chunk)
+            if offset >= total or not chunk:
+                break
+        out.write_bytes(data)
+        print(f"Read {kind}/{ident}: {len(data)} bytes -> {out}")
+
     async def delete(self, kind: str, ident: str):
         await self.command(bytes([0x07, KINDS[kind]]) + ident.encode())
         await self.result(0x07)
@@ -232,6 +277,14 @@ async def main():
     rm.add_argument("kind", choices=KINDS)
     rm.add_argument("id")
     sub.add_parser("name").add_argument("name", nargs="?")
+    rd = sub.add_parser("read")
+    rd.add_argument("kind", choices=KINDS)
+    rd.add_argument("id")
+    rd.add_argument("out", type=Path)
+    sub.add_parser("faces")
+    fo = sub.add_parser("face-order")
+    fo.add_argument("ids", nargs="+")
+    fo.add_argument("--active", type=int, default=0)
     args = parser.parse_args()
 
     print("Scanning (open Synk on the watch)...")
@@ -258,6 +311,12 @@ async def main():
             await watch.upload(args.kind, args.file, args.id, args.name)
         elif args.cmd == "delete":
             await watch.delete(args.kind, args.id)
+        elif args.cmd == "read":
+            await watch.read(args.kind, args.id, args.out)
+        elif args.cmd == "faces":
+            await watch.faces()
+        elif args.cmd == "face-order":
+            await watch.set_face_order(args.ids, args.active)
         elif args.cmd == "name":
             if args.name:
                 await watch.set_name(args.name)
