@@ -286,6 +286,32 @@ private func sendHandshakeResponse(connHandle: UInt16, opcode: HandshakeOpcode, 
     }
 }
 
+// A stale client's connection, closed shortly after its Nack was sent (on the esp_timer task: NimBLE's host API is
+// safe from any task)
+nonisolated(unsafe) private var staleConnTimer: esp_timer_handle_t?
+nonisolated(unsafe) private var staleConn = UInt16(BLE_HS_CONN_HANDLE_NONE)
+private let staleConnDelayUs: UInt64 = 500_000
+
+private func terminateSoon(_ connHandle: UInt16) {
+    if staleConnTimer == nil {
+        var args = esp_timer_create_args_t()
+        args.callback = { _ in
+            // Still the same connection (the phone usually hangs up itself once it has the Nack)
+            if ble_gap_conn_find(staleConn, nil) == 0 {
+                terminateConnection(staleConn)
+            }
+        }
+        args.dispatch_method = ESP_TIMER_TASK
+        guard esp_timer_create(&args, &staleConnTimer) == ESP_OK else {
+            terminateConnection(connHandle)
+            return
+        }
+    }
+    esp_timer_stop(staleConnTimer)
+    staleConn = connHandle
+    esp_timer_start_once(staleConnTimer, staleConnDelayUs)
+}
+
 private func sendNack(connHandle: UInt16, reason: NackReason) {
     sendHandshakeResponse(connHandle: connHandle, opcode: .nack, payload: [reason.rawValue])
 }
@@ -372,9 +398,10 @@ private func handleResumeHello(connHandle: UInt16, payload: [UInt8]) {
         // any connection is open (see NimBLE.swift), so if we just left
         // this one sitting here, it would permanently block a legitimate
         // new client from ever connecting to go through the real pairing
-        // flow. Kick it after the Nack so the slot frees up.
+        // flow. Kick it after the Nack so the slot frees up -- a moment later: kicked right away, the Nack never
+        // reached the phone, which then took it for a dropped connection and retried every 2 s, forever.
         sendNack(connHandle: connHandle, reason: .notPaired)
-        terminateConnection(connHandle)
+        terminateSoon(connHandle)
         return
     }
 

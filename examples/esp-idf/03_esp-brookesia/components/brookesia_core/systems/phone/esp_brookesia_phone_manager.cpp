@@ -333,9 +333,12 @@ bool Manager::processGestureScreenChange(Screen screen, void *param)
                                             (navigation_bar_visual_mode == NavigationBar::VisualMode::HIDE));
         _flags.enable_gesture_navigation_back = false;
         _flags.enable_gesture_navigation_home = false;
-        _flags.enable_gesture_navigation_recents_app = _flags.enable_gesture_navigation;
+        // [Local change] The bottom edge's only use on the home screen is the swipe up to the recents screen: without
+        // one (stylesheet enable_recents_screen = 0), no gesture there, nor its indicator bar
+        _flags.enable_gesture_navigation_recents_app = (_flags.enable_gesture_navigation &&
+                (display.getRecentsScreen() != nullptr));
         _flags.enable_gesture_show_mask_left_right_edge = false;
-        _flags.enable_gesture_show_mask_bottom_edge = (_flags.enable_gesture_navigation ||
+        _flags.enable_gesture_show_mask_bottom_edge = (_flags.enable_gesture_navigation_recents_app ||
                 (navigation_bar_visual_mode == NavigationBar::VisualMode::SHOW_FLEX));
         _flags.enable_gesture_show_left_right_indicator_bar = false;
         _flags.enable_gesture_show_bottom_indicator_bar = _flags.enable_gesture_show_mask_bottom_edge;

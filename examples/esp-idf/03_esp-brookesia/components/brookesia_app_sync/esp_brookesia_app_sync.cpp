@@ -98,8 +98,19 @@ Sync *Sync::requestInstance()
     return _instance;
 }
 
+// No navigation gestures (nor the bar at the bottom that shows them): a swipe that started on a button pressed it.
+// The power key goes back.
+static phone::App::Config phone_config()
+{
+    phone::App::Config config =
+        phone::App::Config::SIMPLE_CONSTRUCTOR(&esp_brookesia_app_icon_launcher_sync_112_112, false, false);
+    config.flags.enable_navigation_gesture = 0;
+    return config;
+}
+
 Sync::Sync():
-    App(APP_NAME, &esp_brookesia_app_icon_launcher_sync_112_112, true, false, false)
+    App(base::App::Config::SIMPLE_CONSTRUCTOR(APP_NAME, &esp_brookesia_app_icon_launcher_sync_112_112, true),
+        phone_config())
 {
 }
 
@@ -154,7 +165,8 @@ bool Sync::run(void)
 
     _reset_button = lv_button_create(screen);
     lv_obj_set_style_bg_color(_reset_button, lv_color_hex(0x333333), 0);
-    lv_obj_align(_reset_button, LV_ALIGN_BOTTOM_MID, 0, -40);
+    // Well above the bottom edge, where a swipe up (home) starts
+    lv_obj_align(_reset_button, LV_ALIGN_CENTER, 0, 90);
     lv_obj_add_event_cb(_reset_button, onResetPairing, LV_EVENT_CLICKED, this);
     lv_obj_t *reset_label = lv_label_create(_reset_button);
     lv_label_set_text(reset_label, "Par ny telefon");
@@ -184,7 +196,7 @@ bool Sync::close(void)
 
     stopBle();
     // The core deletes the recorded timer and objects itself
-    _status = _qr = _pop = _storage = _reset_button = nullptr;
+    _status = _qr = _pop = _storage = _reset_button = _confirm = nullptr;
 
     return true;
 }
@@ -296,7 +308,73 @@ void Sync::onTimer(lv_timer_t *timer)
 
 void Sync::onResetPairing(lv_event_t *e)
 {
+    static_cast<Sync *>(lv_event_get_user_data(e))->showResetConfirmation();
+}
+
+void Sync::onConfirmReset(lv_event_t *e)
+{
+    static_cast<Sync *>(lv_event_get_user_data(e))->closeResetConfirmation();
     ble_sync_reset_pairing();
+}
+
+void Sync::onCancelReset(lv_event_t *e)
+{
+    static_cast<Sync *>(lv_event_get_user_data(e))->closeResetConfirmation();
+}
+
+static lv_obj_t *dialog_button(lv_obj_t *parent, const char *text, lv_color_t color)
+{
+    lv_obj_t *button = lv_button_create(parent);
+    lv_obj_set_size(button, 150, 56);
+    lv_obj_set_style_bg_color(button, color, 0);
+    lv_obj_set_style_radius(button, 28, 0);
+    lv_obj_t *label = lv_label_create(button);
+    lv_label_set_text(label, text);
+    lv_obj_set_style_text_font(label, &watch_font_danish_20, 0);
+    lv_obj_set_style_text_color(label, lv_color_white(), 0);
+    lv_obj_center(label);
+    return button;
+}
+
+void Sync::showResetConfirmation(void)
+{
+    if (_confirm != nullptr) {
+        return;
+    }
+    // Over the whole screen (it takes the touches too)
+    _confirm = lv_obj_create(lv_screen_active());
+    lv_obj_remove_style_all(_confirm);
+    lv_obj_set_size(_confirm, lv_pct(100), lv_pct(100));
+    lv_obj_set_style_bg_color(_confirm, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(_confirm, LV_OPA_COVER, 0);
+    lv_obj_add_flag(_confirm, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(_confirm, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *question = lv_label_create(_confirm);
+    lv_obj_set_width(question, lv_pct(84));
+    lv_label_set_long_mode(question, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(question, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(question, &watch_font_danish_20, 0);
+    lv_obj_set_style_text_color(question, lv_color_white(), 0);
+    lv_obj_set_style_text_line_space(question, 6, 0);
+    lv_label_set_text(question, "Er du sikker på, at du vil fjerne forbindelsen til den nuværende telefon?\n\n"
+                      "Telefonen skal derefter parres igen.");
+    lv_obj_align(question, LV_ALIGN_CENTER, 0, -60);
+
+    lv_obj_t *cancel = dialog_button(_confirm, "Annuller", lv_color_hex(0x444444));
+    lv_obj_align(cancel, LV_ALIGN_CENTER, -82, 90);
+    lv_obj_add_event_cb(cancel, onCancelReset, LV_EVENT_CLICKED, this);
+    lv_obj_t *remove = dialog_button(_confirm, "Fjern", lv_color_hex(0xC0392B));
+    lv_obj_align(remove, LV_ALIGN_CENTER, 82, 90);
+    lv_obj_add_event_cb(remove, onConfirmReset, LV_EVENT_CLICKED, this);
+}
+
+void Sync::closeResetConfirmation(void)
+{
+    if (_confirm != nullptr) {
+        lv_obj_delete_async(_confirm); // From one of its own buttons' events
+        _confirm = nullptr;
+    }
 }
 
 ESP_UTILS_REGISTER_PLUGIN_WITH_CONSTRUCTOR(systems::base::App, Sync, APP_NAME, []()

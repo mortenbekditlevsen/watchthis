@@ -36,6 +36,7 @@
 #ifndef BLE_SYNC_MUTEX_SHIM
 #define BLE_SYNC_MUTEX_SHIM
 #include "freertos/semphr.h"
+#include "esp_timer.h"
 static inline SemaphoreHandle_t ble_sync_mutex_create(void) { return xSemaphoreCreateMutex(); }
 static inline void ble_sync_mutex_take(SemaphoreHandle_t m) { xSemaphoreTake(m, portMAX_DELAY); }
 static inline void ble_sync_mutex_give(SemaphoreHandle_t m) { xSemaphoreGive(m); }

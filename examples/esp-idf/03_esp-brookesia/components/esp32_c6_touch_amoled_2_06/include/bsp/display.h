@@ -83,6 +83,14 @@ esp_err_t bsp_display_brightness_set(int brightness_percent);
 int bsp_display_brightness_get(void);
 
 /**
+ * @brief [Local addition] Set the brightness the screen has when on (1...100 %): applied now if it is on, and by
+ *        bsp_display_backlight_on() from then on
+ */
+esp_err_t bsp_display_backlight_level_set(int brightness_percent);
+
+int bsp_display_backlight_level_get(void);
+
+/**
  * @brief Turn on display backlight
  *
  * Brightness is controlled with PWM signal to a pin controlling backlight.

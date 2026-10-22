@@ -3,7 +3,7 @@
 idf_component_register(
     SRCS /dev/null # Swift sources are added below
     INCLUDE_DIRS "include"
-    REQUIRES swift_support bt pairing file_store
+    REQUIRES swift_support bt pairing file_store esp_timer
 )
 
 idf_build_get_property(target IDF_TARGET)

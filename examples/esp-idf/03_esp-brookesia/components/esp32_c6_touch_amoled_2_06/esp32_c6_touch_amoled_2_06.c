@@ -339,10 +339,28 @@ esp_err_t bsp_display_backlight_off(void)
     return bsp_display_brightness_set(0);
 }
 
+/* [Local addition] The brightness the screen has when on (Indstillinger): backlight_on() turns it on at this level */
+static int s_backlight_level = 100;
+
+esp_err_t bsp_display_backlight_level_set(int brightness_percent)
+{
+    if (brightness_percent < 1 || brightness_percent > 100) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    s_backlight_level = brightness_percent;
+    // Only while the screen is on: otherwise it's used when it next comes on
+    return (brightness > 0) ? bsp_display_brightness_set(brightness_percent) : ESP_OK;
+}
+
+int bsp_display_backlight_level_get(void)
+{
+    return s_backlight_level;
+}
+
 esp_err_t bsp_display_backlight_on(void)
 {
     ESP_LOGI(TAG, "Backlight on");
-    return bsp_display_brightness_set(100);
+    return bsp_display_brightness_set(s_backlight_level);
 }
 
 /* [Local addition] Same QSPI command framing as bsp_display_brightness_set() */

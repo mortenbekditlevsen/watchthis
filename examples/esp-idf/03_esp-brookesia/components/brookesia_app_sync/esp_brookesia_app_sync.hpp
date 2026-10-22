@@ -31,11 +31,15 @@ protected:
 private:
     static void onTimer(lv_timer_t *timer);
     static void onResetPairing(lv_event_t *e);
+    static void onConfirmReset(lv_event_t *e);
+    static void onCancelReset(lv_event_t *e);
 
     void startBle(void);
     void stopBle(void);
     void updateUi(void);
     void updateStorageInfo(void);
+    void showResetConfirmation(void);
+    void closeResetConfirmation(void);
 
     static Sync *_instance;
 
@@ -44,6 +48,7 @@ private:
     lv_obj_t *_pop = nullptr;
     lv_obj_t *_storage = nullptr;
     lv_obj_t *_reset_button = nullptr;
+    lv_obj_t *_confirm = nullptr;   // "Are you sure" over the whole screen, while shown
     uint32_t _ticks = 0;
     bool _uploading = false;
 };
