@@ -5,11 +5,14 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <dirent.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_heap_caps.h"
+#include "esp_timer.h"
+#include "esp_partition.h"
 
 // LVGL is configured through Kconfig (CONFIG_LV_CONF_SKIP); these mirror what LVGL's CMake passes to C code, since
 // swiftc does not forward -D definitions to the Clang importer

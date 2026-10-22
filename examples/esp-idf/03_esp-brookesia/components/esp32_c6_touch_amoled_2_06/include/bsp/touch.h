@@ -36,6 +36,17 @@ esp_err_t bsp_touch_new(const bsp_touch_config_t *config, esp_lcd_touch_handle_t
  */
 esp_err_t bsp_touch_sleep(bool sleep);
 
+/**
+ * @brief Whether a finger is on the screen (reads the touch controller; it must not be hibernating)
+ */
+bool bsp_touch_is_pressed(void);
+
+/**
+ * @brief Give the touch INT pin's interrupt back to the touch driver (falling edge, its handler), after it was
+ *        used for something else
+ */
+void bsp_touch_restore_int(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -18,7 +18,7 @@ constexpr AppLauncherIcon::Data STYLESHEET_410_502_DARK_APP_LAUNCHER_ICON_DATA =
     },
     .image = {
         .default_size = gui::StyleSize::SQUARE(120),
-        .press_size = gui::StyleSize::SQUARE(110),
+        .press_size = gui::StyleSize::SQUARE(120),  // Same as default: no shrink while pressed (it showed during swipes)
     },
     .label = {
         .text_font = gui::StyleFont::SIZE(16),

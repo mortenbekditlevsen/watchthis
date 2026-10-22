@@ -20,6 +20,7 @@
 #include "step_counter.h"
 #include "music_player.h"
 #include "watch_tools.h"
+#include "ble_background.hpp"
 #include "time_sync.hpp"
 #include "power_manager.hpp"
 
@@ -27,6 +28,28 @@ static const char *TAG = "Power";
 
 // The power key goes to the PMU only (not readable on a GPIO, so no GPIO wakeup): poll its latched press status
 static constexpr uint32_t POLL_PERIOD_MS = 250;
+// After the screen goes off the touch controller stays on this long: a touch turns the screen back on
+static constexpr int64_t TOUCH_WAKE_WINDOW_US = 8LL * 1000 * 1000;
+static constexpr uint32_t TOUCH_POLL_PERIOD_MS = 50;   // During that window (a tap is ~100 ms)
+static constexpr uint32_t TOUCH_RELEASE_WAIT_MS = 2000;
+
+// The touch INT line went low while the screen was off (latched; the interrupt then turns itself off, since it is
+// level-triggered, as light sleep's GPIO wake needs)
+static volatile bool s_touch_int_seen = false;
+
+static void touch_int_isr(void *)
+{
+    s_touch_int_seen = true;
+    gpio_intr_disable(BSP_LCD_TOUCH_INT);
+}
+
+// The pin's interrupt is LVGL's otherwise (it reads the touch only when it fires): give it back
+static void touch_int_stop()
+{
+    gpio_intr_disable(BSP_LCD_TOUCH_INT);
+    gpio_wakeup_disable(BSP_LCD_TOUCH_INT);
+    bsp_touch_restore_int();
+}
 static constexpr uint32_t SLEEP_IDLE_MS = 10 * 1000;    // Only on the home screen and flagged screens
 // At night, after this long asleep (on battery, BLE and music off), the PMU switches the board off; the power key
 // boots it again. During the day the watch stays in light sleep (~0.75 %/h), so steps keep counting and it wakes
@@ -153,20 +176,57 @@ static void sleep_until_power_key(void)
     }
     bsp_display_unlock();
     lvgl_port_stop();
-    bsp_touch_sleep(true);      // Stop the touch controller scanning
+
+    // The touch controller keeps scanning for TOUCH_WAKE_WINDOW_US: a touch then turns the screen back on. It
+    // reports a touch with a short low pulse on its INT line, which a poll of the line easily misses: an interrupt
+    // latches it (touch_int_isr), and it also wakes light sleep. It is also asked over I2C now and then; it drops
+    // into a low-power mode of its own after a few idle seconds where it doesn't answer I2C (but still pulses INT),
+    // so those reads may fail: their error log is muted meanwhile. After the window it hibernates (only a reset
+    // wakes it again).
+    bool touch_awake = true;
+    bool woken_by_touch = false;
+    uint32_t touch_polls = 0;
+    bool woke_on_gpio = false;  // The last light sleep (of this loop) ended by the touch INT line
+    s_touch_int_seen = false;
+    gpio_wakeup_enable(BSP_LCD_TOUCH_INT, GPIO_INTR_LOW_LEVEL); // also the interrupt's type
+    esp_sleep_enable_gpio_wakeup();
+    const esp_err_t isr_service = gpio_install_isr_service(0);
+    const bool touch_isr = ((isr_service == ESP_OK) || (isr_service == ESP_ERR_INVALID_STATE)) &&
+                           (gpio_isr_handler_add(BSP_LCD_TOUCH_INT, touch_int_isr, nullptr) == ESP_OK);
+    if (touch_isr) {
+        gpio_intr_enable(BSP_LCD_TOUCH_INT);
+    } else {
+        ESP_LOGW(TAG, "No touch interrupt: a quick tap may not wake");
+    }
+    esp_log_level_set("lcd_panel.io.i2c", ESP_LOG_NONE);
 
     // The power key can only be polled (its IRQ line isn't wired to the ESP32), so wake up briefly to check it
-    esp_sleep_enable_timer_wakeup(POLL_PERIOD_MS * 1000);
+    esp_sleep_enable_timer_wakeup(TOUCH_POLL_PERIOD_MS * 1000);
     set_phase(Phase::Sleeping);
     const int64_t asleep_since = esp_timer_get_time();
     while (!pmu_pkey_short_pressed() && !timer_due()) {
+        if (touch_awake) {
+            const bool i2c_check = (++touch_polls % (POLL_PERIOD_MS / TOUCH_POLL_PERIOD_MS)) == 0;
+            if (s_touch_int_seen || woke_on_gpio ||
+                    (gpio_get_level(BSP_LCD_TOUCH_INT) == 0) || (i2c_check && bsp_touch_is_pressed())) {
+                woken_by_touch = true;
+                break;
+            }
+            if (esp_timer_get_time() - asleep_since >= TOUCH_WAKE_WINDOW_US) {
+                touch_int_stop();
+                esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
+                bsp_touch_sleep(true);  // Stop the touch controller scanning
+                touch_awake = false;
+                esp_sleep_enable_timer_wakeup(POLL_PERIOD_MS * 1000);
+            }
+        }
         battery_log_poll(true);
         step_counter_poll();    // The IMU's FIFO holds only ~4 s of samples
         const bool on_battery = !pmu_vbus_present();
-        if (on_battery && ble_sync_is_active()) {
-            // Unplugged while asleep: BLE only runs in the background while charging (main.cpp). LVGL is stopped,
-            // so this is the only task calling it now. (Synk's BLE keeps running: ble_sync_stop() isn't called.)
-            ble_sync_set_background(false);
+        if (on_battery) {
+            // Unplugged while asleep: BLE only runs in the background while charging (main.cpp); its task stops it
+            // (the loop below avoids light sleep until then). Synk's BLE keeps running: it isn't background.
+            ble_background_want(false);
         }
         if (on_battery && !ble_sync_is_active() && !music_player_is_active() &&
                 (esp_timer_get_time() - asleep_since >= POWER_OFF_AFTER_SLEEP_US) && is_night()) {
@@ -178,19 +238,33 @@ static void sleep_until_power_key(void)
         }
         if (ble_sync_is_active() || music_player_is_playing() || music_player_alarm_active() || !on_battery) {
             // Screen off only: light sleep would cut off the BLE link (Synk app), the music or the USB connection
-            vTaskDelay(pdMS_TO_TICKS(POLL_PERIOD_MS));
+            vTaskDelay(pdMS_TO_TICKS(touch_awake ? TOUCH_POLL_PERIOD_MS : POLL_PERIOD_MS));
         } else {
             esp_light_sleep_start();
+            woke_on_gpio = esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_GPIO;
             breadcrumb_sleep_cycles = breadcrumb_sleep_cycles + 1;
         }
     }
     esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
+    if (touch_awake) {
+        touch_int_stop();
+        esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
+    }
     set_phase(Phase::Waking);
 
     // The ESP32's clock drifts in light sleep (RC oscillator); the RTC chip's crystal doesn't
     time_sync_restore_from_rtc();
 
-    bsp_touch_sleep(false);     // Reset pulse wakes the touch controller (~200 ms)
+    if (!touch_awake) {
+        bsp_touch_sleep(false); // Reset pulse wakes the touch controller (~200 ms)
+    }
+    if (woken_by_touch) {
+        // The waking touch mustn't also press something: give LVGL the touchscreen only after the finger lifts
+        for (uint32_t waited = 0; bsp_touch_is_pressed() && (waited < TOUCH_RELEASE_WAIT_MS); waited += 20) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+    }
+    esp_log_level_set("lcd_panel.io.i2c", ESP_LOG_WARN);
     lvgl_port_resume();
     bsp_display_lock(0);
     bsp_display_sleep(false);   // ~120 ms
@@ -203,8 +277,8 @@ static void sleep_until_power_key(void)
     bsp_display_unlock();
 
     set_phase(Phase::Awake);
-    ESP_LOGI(TAG, "Wake (%" PRIu32 " sleep cycles so far, power task stack free: %u bytes)", breadcrumb_sleep_cycles,
-             (unsigned)uxTaskGetStackHighWaterMark(nullptr));
+    ESP_LOGI(TAG, "Wake%s (%" PRIu32 " sleep cycles so far, power task stack free: %u bytes)",
+             woken_by_touch ? " by touch" : "", breadcrumb_sleep_cycles, (unsigned)uxTaskGetStackHighWaterMark(nullptr));
 }
 
 static void power_task(void *arg)

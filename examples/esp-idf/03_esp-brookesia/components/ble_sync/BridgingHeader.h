@@ -31,3 +31,12 @@
 #ifndef MYNEWT_VAL_BLE_LL_WHITELIST_SIZE
 #define MYNEWT_VAL_BLE_LL_WHITELIST_SIZE CONFIG_BT_NIMBLE_WHITELIST_SIZE
 #endif
+
+// A mutex for the C API (start/stop/background can come from different tasks); macros wrapped for Swift
+#ifndef BLE_SYNC_MUTEX_SHIM
+#define BLE_SYNC_MUTEX_SHIM
+#include "freertos/semphr.h"
+static inline SemaphoreHandle_t ble_sync_mutex_create(void) { return xSemaphoreCreateMutex(); }
+static inline void ble_sync_mutex_take(SemaphoreHandle_t m) { xSemaphoreTake(m, portMAX_DELAY); }
+static inline void ble_sync_mutex_give(SemaphoreHandle_t m) { xSemaphoreGive(m); }
+#endif

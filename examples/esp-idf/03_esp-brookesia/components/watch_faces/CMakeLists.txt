@@ -4,7 +4,7 @@
 idf_component_register(
     SRCS /dev/null # Swift sources are added below
     INCLUDE_DIRS "include"
-    REQUIRES swift_support lvgl__lvgl file_store step_counter watch_fonts freertos esp_rom heap
+    REQUIRES swift_support lvgl__lvgl file_store step_counter watch_fonts freertos esp_rom heap esp_timer esp_partition
 )
 
 include(${CMAKE_CURRENT_LIST_DIR}/../swift_support/swift_component.cmake)
@@ -28,6 +28,10 @@ target_sources(${COMPONENT_LIB}
     ImageWorker.swift
     FaceStore.swift
     Carousel.swift
+    Baker.swift
+    StoreImageDecoder.swift
+    StaticSlot.swift
     Birthday.swift
     WeatherApp.swift
+    BasketApp.swift
 )

@@ -106,6 +106,8 @@ enum FaceStore {
 
 /// Set when faces or their order changed; the carousel reloads on its next tick
 nonisolated(unsafe) var facesChanged: Int32 = 0
+/// Set (with facesChanged) when a face asset (font, image) changed: the baked layers are made again
+nonisolated(unsafe) var assetsChanged: Int32 = 0
 
 private func checkUpload(_ kind: file_store_kind_t, _ path: UnsafePointer<CChar>?) -> Bool {
     if kind == FILE_STORE_WEATHER, let path {
@@ -131,6 +133,7 @@ private func uploadChanged(_ kind: file_store_kind_t, _ id: UnsafePointer<CChar>
     guard let id else { return }
     if kind == FILE_STORE_FACE_ASSET {
         ImageWorker.removeCache(String(cString: id)) // stale (replaced) or unused (removed)
+        wf_atomic_store(&assetsChanged, 1)
     }
     if kind == FILE_STORE_FACE || kind == FILE_STORE_FACE_ASSET {
         wf_atomic_store(&facesChanged, 1)
@@ -140,6 +143,13 @@ private func uploadChanged(_ kind: file_store_kind_t, _ id: UnsafePointer<CChar>
 @_cdecl("watch_faces_init")
 public func watch_faces_init() {
     ImageWorker.removeStaleCaches()
+    // Pre-drawn gradients and baked layers of faces that are gone (each is ~100-400 KB)
+    var keep: [String] = []
+    for id in FaceStore.installedIDs() + WatchFace.builtins.map({ $0.id }) {
+        guard let face = FaceStore.load(id) else { continue }
+        keep.append(BakeKeys.thumbnailKey(face))
+    }
+    ImageWorker.removeUnusedDrawn(keep: keep)
     Birthday.load()
     file_store_set_hooks({ kind, path in checkUpload(kind, path) }, { kind, id, removed in
         uploadChanged(kind, id, removed)

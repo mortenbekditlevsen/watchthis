@@ -44,8 +44,19 @@ TheLittleGame *TheLittleGame::requestInstance()
     return _instance;
 }
 
+// No navigation gestures (nor the bar at the bottom that shows them): swipes are part of the game. The power key
+// goes back.
+static phone::App::Config phone_config()
+{
+    phone::App::Config config =
+        phone::App::Config::SIMPLE_CONSTRUCTOR(&esp_brookesia_app_icon_launcher_thelittlegame_112_112, false, false);
+    config.flags.enable_navigation_gesture = 0;
+    return config;
+}
+
 TheLittleGame::TheLittleGame():
-    App(APP_NAME, &esp_brookesia_app_icon_launcher_thelittlegame_112_112, true, false, false)
+    App(base::App::Config::SIMPLE_CONSTRUCTOR(APP_NAME, &esp_brookesia_app_icon_launcher_thelittlegame_112_112, true),
+        phone_config())
 {
 }
 

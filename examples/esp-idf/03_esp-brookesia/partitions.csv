@@ -2,6 +2,10 @@
 # Note: if you have increased the bootloader size, make sure to update the offsets to avoid overlap
 nvs,      data, nvs,      ,        0x6000,
 phy_init, data, phy,      ,        0x1000,
-factory,  app,  factory,  ,        5M,
-# User files (photos, music) on LittleFS; see components/file_store. Takes the rest of the 16 MB flash.
-store,    data, littlefs, ,        0xAF0000,
+factory,  app,  factory,  0x10000, 0x480000,
+# The static layer of the watch face on screen, as raw RGB565, memory-mapped so LVGL draws it straight from flash
+# (components/watch_faces/StaticSlot.swift); reading it through LittleFS cost ~0.27 ms per read, every frame.
+facecache, data, 0x40,    0x490000, 0x80000,
+# User files (photos, music, faces) on LittleFS; see components/file_store. Takes the rest of the 16 MB flash.
+# Its offset must not change (that would lose the files): 0x510000 since the first release.
+store,    data, littlefs, 0x510000, 0xAF0000,

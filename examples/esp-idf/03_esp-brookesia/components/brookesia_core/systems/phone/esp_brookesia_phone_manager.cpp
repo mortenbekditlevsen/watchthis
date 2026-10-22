@@ -210,7 +210,8 @@ bool Manager::processAppCloseExtra(base::App *app)
         ESP_UTILS_CHECK_FALSE_RETURN(processDisplayScreenChange(Screen::MAIN, nullptr), false,
                                      "Process screen change failed");
         // If the recents_screen is visible, change back to the recents_screen
-        if (display.getRecentsScreen()->checkVisible()) {
+        // [Local change] It may be disabled (stylesheet enable_recents_screen = 0): then it is null
+        if ((display.getRecentsScreen() != nullptr) && display.getRecentsScreen()->checkVisible()) {
             ESP_UTILS_CHECK_FALSE_RETURN(processDisplayScreenChange(Screen::RECENTS_SCREEN, nullptr), false,
                                          "Process screen change failed");
         }
@@ -597,6 +598,9 @@ bool Manager::processNavigationEvent(base::Manager::NavigateType type)
         // Process app pause (it resumes where it was if opened again; opening another app closes it, since only one
         // app may run: main/dark/core_data.hpp)
         ESP_UTILS_CHECK_FALSE_GOTO(ret = processAppPause(active_app), end, "base::App(%d) pause failed", active_app->getId());
+        if (on_going_home != nullptr) {
+            on_going_home();
+        }
         ESP_UTILS_CHECK_FALSE_RETURN(processDisplayScreenChange(Screen::MAIN, nullptr), false,
                                      "Process screen change failed");
         resetActiveApp();

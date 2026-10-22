@@ -33,7 +33,7 @@ public func watch_faces_set_birthday(_ month: UInt8, _ day: UInt8) -> UInt8 {
     return 0
 }
 
-/// The flag (top left, on top of every face) and the fireworks it sets off
+/// The flag (top centre, on top of every face) and the fireworks it sets off (with the greeting and a bigger flag)
 final class BirthdayDecoration {
     private let screen: LVObj
     private var flag: LVObj?
@@ -71,15 +71,14 @@ final class BirthdayDecoration {
         flag = nil
     }
 
-    private func makeFlag() -> LVObj {
-        let width: Int32 = 60
+    /// A Danish flag `width` wide (and as high as its proportions say)
+    private static func flagObject(_ parent: LVObj, width: Int32) -> LVObj {
         let height = Int32(Dannebrog.height(width: Int(width)))
-        let flag = lvPlainObject(screen)
+        let flag = lvPlainObject(parent)
         lv_obj_set_size(flag, width, height)
-        lv_obj_set_pos(flag, 26, 22)
         lv_obj_set_style_bg_color(flag, lvColor(Dannebrog.red), partMain)
         lv_obj_set_style_bg_opa(flag, 255, partMain)
-        lv_obj_set_style_radius(flag, 3, partMain)
+        lv_obj_set_style_radius(flag, width / 20, partMain)
         lv_obj_set_style_clip_corner(flag, true, partMain)
         let bars = Dannebrog.whiteBars(width: Int(width))
         for (x, y, w, h) in [bars.vertical, bars.horizontal] {
@@ -89,6 +88,15 @@ final class BirthdayDecoration {
             lv_obj_set_style_bg_color(bar, lv_color_white(), partMain)
             lv_obj_set_style_bg_opa(bar, 255, partMain)
         }
+        return flag
+    }
+
+    private func makeFlag() -> LVObj {
+        let width: Int32 = 60
+        let flag = BirthdayDecoration.flagObject(screen, width: width)
+        // Top center (the screen's corners are rounded), 4 px below the visible top edge: the panel's first rows
+        // are under the bezel, so y = 4 still touched it
+        lv_obj_set_pos(flag, (Int32(WatchScreen.width) - width) / 2, 8)
         // Tappable (with some slack around it); swipes that start on it still change the face
         lv_obj_add_flag(flag, LV_OBJ_FLAG_CLICKABLE)
         lv_obj_add_flag(flag, LV_OBJ_FLAG_GESTURE_BUBBLE)
@@ -132,7 +140,10 @@ final class BirthdayDecoration {
             lv_obj_set_style_text_align(greeting, LV_TEXT_ALIGN_CENTER, partMain)
             lv_obj_set_style_text_line_space(greeting, 6, partMain)
             lvSetText(greeting, "Tillykke med\nfødselsdagen!")
-            lv_obj_center(greeting)
+            lv_obj_align(greeting, LV_ALIGN_CENTER, 0, -45)
+            // A bigger flag under the greeting
+            let flag = BirthdayDecoration.flagObject(overlay, width: 100)
+            lv_obj_align(flag, LV_ALIGN_CENTER, 0, 48)
             self.overlay = overlay
         }
         if timer == nil {

@@ -408,3 +408,107 @@ import Testing
         #expect(dimmed.encoded().count == face.encoded().count + 3)
     }
 }
+
+@Suite struct GradientRasterTests {
+    let red = FaceColor(rgb: 0xFF0000), blue = FaceColor(rgb: 0x0000FF)
+
+    func pixel(_ raster: GradientRaster, _ x: Int, _ y: Int) -> (Int, Int, Int) {
+        var row: [UInt8] = []
+        raster.row(y, into: &row)
+        let v = Int(row[x * 2]) | Int(row[x * 2 + 1]) << 8
+        return ((v >> 11) * 255 / 31, (v >> 5 & 63) * 255 / 63, (v & 31) * 255 / 31)
+    }
+
+    @Test func onlyExpensiveGradients() {
+        let stops = [GradientStop(color: red, location: 0), GradientStop(color: blue, location: 255)]
+        #expect(GradientRaster(.linearGradient(LinearGradient(stops: stops, angle: 180))) == nil) // LVGL: cheap
+        #expect(GradientRaster(.linearGradient(LinearGradient(stops: stops, angle: 135))) != nil)
+        #expect(GradientRaster(.radialGradient(RadialGradient(stops: stops))) != nil)
+        #expect(GradientRaster(.color(red)) == nil)
+    }
+
+    @Test func radialGoesFromCenterToEdge() throws {
+        let stops = [GradientStop(color: red, location: 0), GradientStop(color: blue, location: 255)]
+        let raster = try #require(GradientRaster(.radialGradient(RadialGradient(stops: stops, centerX: 205, centerY: 251, radius: 200))))
+        let center = pixel(raster, 205, 251), corner = pixel(raster, 0, 0)
+        #expect(center.0 > 230 && center.2 < 25)
+        #expect(corner.0 < 25 && corner.2 > 230)
+    }
+
+    @Test func cacheKeysFollowTheGradient() throws {
+        let stops = [GradientStop(color: red, location: 0), GradientStop(color: blue, location: 255)]
+        let a = try #require(GradientRaster(.linearGradient(LinearGradient(stops: stops, angle: 45))))
+        let b = try #require(GradientRaster(.linearGradient(LinearGradient(stops: stops, angle: 45))))
+        let c = try #require(GradientRaster(.linearGradient(LinearGradient(stops: stops, angle: 46))))
+        #expect(a.cacheKey == b.cacheKey && a.cacheKey != c.cacheKey)
+        #expect(FaceID.isValid(a.cacheKey))
+    }
+
+    @Test func ditheringAveragesToTheTrueColor() throws {
+        // A color between two RGB565 levels: neighbouring pixels differ, their average is close to it
+        let grey = FaceColor(rgb: 0x848484)
+        let raster = try #require(GradientRaster(.radialGradient(RadialGradient(stops: [GradientStop(color: grey, location: 0)]))))
+        var sum = 0
+        for y in 0..<4 { for x in 0..<4 { sum += pixel(raster, x, y).1 } }
+        #expect(abs(sum / 16 - 0x84) <= 3)
+    }
+}
+
+@Suite struct BakeTests {
+    @Test func keysFollowTheFace() {
+        var face = WatchFace.classic
+        let a = BakeKeys.staticKey(face)
+        face.name = "Andet"
+        #expect(a != BakeKeys.staticKey(face) && a.hasPrefix("st_") && FaceID.isValid(a))
+        #expect(BakeKeys.thumbnailKey(face).hasPrefix("tq_"))
+    }
+
+    @Test func sliceRangesCoverTheHandWithOverlap() {
+        let ranges = HandSlices.ranges(height: 214)
+        #expect(ranges.first!.start == 0)
+        #expect(ranges.last!.start + ranges.last!.count == 214)
+        for (a, b) in zip(ranges, ranges.dropFirst()) {
+            #expect(b.start == a.start + a.count - 2) // 2 rows overlap
+        }
+        #expect(ranges.allSatisfy { $0.count <= 32 })
+        #expect(HandSlices.ranges(height: 20).count == 1)
+    }
+}
+
+@Suite struct FastMaskTests {
+    /// The previous rasterizer: 4 x 4 samples per pixel, each tested against every polygon
+    func reference(_ hand: Hand, like mask: HandMask) -> [UInt8] {
+        let polygons = HandGeometry.polygons(for: hand)
+        var alpha = [UInt8](repeating: 0, count: mask.width * mask.height)
+        for py in 0..<mask.height {
+            for px in 0..<mask.width {
+                var covered = 0
+                for sy in 0..<4 {
+                    let y = Float(py - mask.pivotY) + (Float(sy) + 0.5) / 4
+                    for sx in 0..<4 {
+                        let x = Float(px - mask.pivotX) + (Float(sx) + 0.5) / 4
+                        if polygons.contains(where: { HandMask.contains($0, x: x, y: y) }) { covered += 1 }
+                    }
+                }
+                alpha[py * mask.width + px] = UInt8(covered * 255 / 16)
+            }
+        }
+        return alpha
+    }
+
+    @Test(arguments: HandShape.allCases)
+    func matchesTheSupersampledMask(shape: HandShape) {
+        let hand = Hand(kind: .minute, shape: shape, length: 120, tail: 20, width: 11)
+        let mask = HandMask(hand: hand)
+        let expected = reference(hand, like: mask)
+        var worst = 0, total = 0
+        for (a, b) in zip(mask.alpha, expected) {
+            let d = abs(Int(a) - Int(b))
+            worst = max(worst, d)
+            total += d
+        }
+        // Same shape; edges differ by sampling (4 x 4 points vs exact horizontal coverage)
+        #expect(worst <= 80)
+        #expect(Double(total) / Double(mask.alpha.count) < 4)
+    }
+}

@@ -182,6 +182,20 @@ func terminateConnection(_ connHandle: UInt16) -> Int32 {
     ble_gap_terminate(connHandle, UInt8(BLE_ERR_REM_USER_CONN_TERM.rawValue))
 }
 
+// MARK: - Locking
+
+/// Start, stop, background and the pairing calls can come from different tasks (Synk on the LVGL task, the charging
+/// policy on its own task, the power manager): one at a time. Created at boot (ble_sync_set_face_handlers, before
+/// any of them can run).
+private var apiLock: SemaphoreHandle_t? = nil
+
+private func locked<T>(_ body: () -> T) -> T {
+    if apiLock == nil { apiLock = ble_sync_mutex_create() }
+    ble_sync_mutex_take(apiLock)
+    defer { ble_sync_mutex_give(apiLock) }
+    return body()
+}
+
 // MARK: - C API (include/ble_sync.h)
 
 @_cdecl("ble_sync_set_time_handler")
@@ -201,11 +215,16 @@ public func ble_sync_get_name_handler(_ handler: ble_sync_get_name_cb_t?) {
 
 @_cdecl("ble_sync_set_face_handlers")
 public func ble_sync_set_face_handlers(_ handlers: UnsafePointer<ble_sync_face_handlers_t>?) {
+    if apiLock == nil { apiLock = ble_sync_mutex_create() }
     faceHandlers = handlers?.pointee
 }
 
 @_cdecl("ble_sync_start")
 public func ble_sync_start(_ callback: ble_sync_status_cb_t?) -> Bool {
+    locked { startLocked(callback) }
+}
+
+private func startLocked(_ callback: ble_sync_status_cb_t?) -> Bool {
     foreground = true
     statusCallback = callback
     if active {
@@ -225,6 +244,10 @@ public func ble_sync_start(_ callback: ble_sync_status_cb_t?) -> Bool {
 
 @_cdecl("ble_sync_set_background")
 public func ble_sync_set_background(_ on: Bool) {
+    locked { setBackgroundLocked(on) }
+}
+
+private func setBackgroundLocked(_ on: Bool) {
     background = on
     if on && !active && pairing_has_trust() {
         // Only for a paired watch: without the Synk screen there is nowhere to show a pairing code
@@ -270,6 +293,10 @@ private func startStack(openPairingWindowIfUnpaired: Bool) -> Bool {
 
 @_cdecl("ble_sync_stop")
 public func ble_sync_stop() {
+    locked { stopLocked() }
+}
+
+private func stopLocked() {
     foreground = false
     statusCallback = nil
     guard active else { return }
@@ -312,6 +339,10 @@ public func ble_sync_is_active() -> Bool {
 
 @_cdecl("ble_sync_reset_pairing")
 public func ble_sync_reset_pairing() {
+    locked { resetPairingLocked() }
+}
+
+private func resetPairingLocked() {
     guard active else { return }
     pairing_clear_trust()
     if currentConn != UInt16(BLE_HS_CONN_HANDLE_NONE) {
@@ -323,6 +354,10 @@ public func ble_sync_reset_pairing() {
 
 @_cdecl("ble_sync_tick")
 public func ble_sync_tick() {
+    locked { tickLocked() }
+}
+
+private func tickLocked() {
     guard active else { return }
     if pairing_window_tick_expiry() {
         qrPayload = nil

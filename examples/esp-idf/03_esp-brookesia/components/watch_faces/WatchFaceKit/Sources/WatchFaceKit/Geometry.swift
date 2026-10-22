@@ -177,25 +177,64 @@ public struct HandMask: Sendable {
         pivotX = left
         pivotY = top
 
-        let samples = 4
+        // Coverage row by row: in each of 4 sub-rows per pixel row, every (convex) polygon covers one span of x;
+        // the spans are merged and their exact horizontal coverage added up. A few edge tests per row, instead of
+        // testing 16 points per pixel against every edge (that took ~1 s per face on the watch, without an FPU).
+        let subRows = 4
         var alpha = [UInt8](repeating: 0, count: width * height)
+        var coverage = [Float](repeating: 0, count: width)
+        var spans: [(Float, Float)] = []
         for py in 0..<height {
-            for px in 0..<width {
-                var covered = 0
-                for sy in 0..<samples {
-                    let y = Float(py - top) + (Float(sy) + 0.5) / Float(samples)
-                    for sx in 0..<samples {
-                        let x = Float(px - left) + (Float(sx) + 0.5) / Float(samples)
-                        for polygon in polygons where HandMask.contains(polygon, x: x, y: y) {
-                            covered += 1
-                            break
-                        }
+            for i in 0..<width { coverage[i] = 0 }
+            for sub in 0..<subRows {
+                let y = Float(py - top) + (Float(sub) + 0.5) / Float(subRows)
+                spans.removeAll(keepingCapacity: true)
+                for polygon in polygons {
+                    if let span = HandMask.span(polygon, y: y) { spans.append(span) }
+                }
+                spans.sort { $0.0 < $1.0 }
+                var i = 0
+                while i < spans.count {
+                    var (x0, x1) = spans[i]
+                    i += 1
+                    while i < spans.count && spans[i].0 <= x1 {
+                        x1 = max(x1, spans[i].1)
+                        i += 1
+                    }
+                    // In pixel coordinates; add how much of each pixel [px, px + 1) the span covers
+                    let a = x0 + Float(left), b = x1 + Float(left)
+                    var px = max(0, Int(a.rounded(.down)))
+                    let last = min(width - 1, Int(b.rounded(.down)))
+                    while px <= last {
+                        let covered = min(b, Float(px + 1)) - max(a, Float(px))
+                        if covered > 0 { coverage[px] += covered }
+                        px += 1
                     }
                 }
-                alpha[py * width + px] = UInt8(covered * 255 / (samples * samples))
+            }
+            for px in 0..<width {
+                alpha[py * width + px] = UInt8(min(255, (coverage[px] / Float(subRows) * 255).rounded()))
             }
         }
         self.alpha = alpha
+    }
+
+    /// Where a horizontal line at `y` crosses a convex polygon: the span of x it covers, or nil
+    static func span(_ polygon: [Point], y: Float) -> (Float, Float)? {
+        var lo = Float.greatestFiniteMagnitude, hi = -Float.greatestFiniteMagnitude
+        for i in 0..<polygon.count {
+            let p = polygon[i], q = polygon[(i + 1) % polygon.count]
+            let (y0, y1) = (min(p.y, q.y), max(p.y, q.y))
+            guard y >= y0 && y <= y1 else { continue }
+            let x = y1 - y0 < 1e-6 ? p.x : p.x + (q.x - p.x) * (y - p.y) / (q.y - p.y)
+            lo = min(lo, x)
+            hi = max(hi, x)
+            if y1 - y0 < 1e-6 {
+                lo = min(lo, q.x)
+                hi = max(hi, q.x)
+            }
+        }
+        return lo <= hi ? (lo, hi) : nil
     }
 
     /// Convex polygon, either winding

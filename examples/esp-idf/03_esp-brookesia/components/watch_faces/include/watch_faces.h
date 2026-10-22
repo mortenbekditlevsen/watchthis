@@ -28,6 +28,14 @@ void watch_faces_hide(void);
 void weather_app_show(lv_obj_t *screen);
 void weather_app_hide(void);
 
+/* The Basket app's run()/close() (brookesia_app_basket), with the LVGL lock held: a swipe basketball game on
+ * `screen`, the app's screen */
+void basket_app_show(lv_obj_t *screen);
+void basket_app_hide(void);
+
+/* Called (on the LVGL task) when the user swipes up on a watch face: go to the home screen */
+void watch_faces_set_home_handler(void (*go_home)(void));
+
 /* Battery percentage for battery elements (-1 = unknown); polled about every 30 s while a face shows one. */
 void watch_faces_set_battery_source(int (*percent)(void));
 

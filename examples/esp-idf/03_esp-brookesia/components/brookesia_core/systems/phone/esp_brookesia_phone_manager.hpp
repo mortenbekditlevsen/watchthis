@@ -20,6 +20,10 @@ class Manager: public base::Manager {
 public:
     friend class Phone;
 
+    /* [Local addition] Called when an app goes to the background for the home screen (gesture, or a navigate
+     * event), just before the home screen is loaded */
+    static inline void (*on_going_home)(void) = nullptr;
+
     struct Data {
         Gesture::Data gesture;
         uint32_t gesture_mask_indicator_trigger_time_ms;

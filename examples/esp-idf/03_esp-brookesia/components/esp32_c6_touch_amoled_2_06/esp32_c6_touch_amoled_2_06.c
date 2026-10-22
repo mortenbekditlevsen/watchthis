@@ -471,6 +471,35 @@ esp_err_t bsp_touch_sleep(bool sleep)
     return ESP_OK;
 }
 
+/* [Local addition] Whether a finger is on the screen: FT3168/FT5x06 register 0x02 (TD_STATUS) = touch points. For
+ * the power manager while LVGL is stopped (the controller must not be hibernating). */
+bool bsp_touch_is_pressed(void)
+{
+    uint8_t points = 0;
+    if ((tp == NULL) || (esp_lcd_panel_io_rx_param(tp->io, 0x02, &points, 1) != ESP_OK)) {
+        return false;
+    }
+    points &= 0x0F;
+    return (points > 0) && (points <= 2);
+}
+
+/* [Local addition] The touch INT pin's interrupt as the touch driver set it up: falling edge, with the handler that
+ * was registered for it (esp_lvgl_port's, which wakes the LVGL task to read the touch: without it, touches are
+ * never read). For after something else (touch-to-wake) used the pin's interrupt. */
+void bsp_touch_restore_int(void)
+{
+    if (tp == NULL) {
+        return;
+    }
+    gpio_intr_disable(BSP_LCD_TOUCH_INT);
+    gpio_set_intr_type(BSP_LCD_TOUCH_INT, GPIO_INTR_NEGEDGE);
+    if (tp->config.interrupt_callback != NULL) {
+        gpio_isr_handler_add(BSP_LCD_TOUCH_INT, (gpio_isr_t)tp->config.interrupt_callback, tp);
+    } else {
+        gpio_isr_handler_remove(BSP_LCD_TOUCH_INT);
+    }
+}
+
 esp_err_t bsp_touch_new(const bsp_touch_config_t *config, esp_lcd_touch_handle_t *ret_touch)
 {
     /* Initilize I2C */

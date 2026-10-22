@@ -81,3 +81,33 @@ static inline void wf_draw_triangle(lv_layer_t *layer, int32_t x1, int32_t y1, i
     dsc.opa = opa;
     lv_draw_triangle(layer, &dsc);
 }
+
+// For StoreImageDecoder.swift: LVGL's decoder descriptor fields are private, headers are bitfields
+#include "src/draw/lv_image_decoder_private.h"
+static inline int32_t wf_coord_min(void) { return LV_COORD_MIN; }
+static inline void wf_image_header_set(lv_image_header_t *header, uint32_t w, uint32_t h)
+{
+    header->cf = LV_COLOR_FORMAT_RGB565;
+    header->w = w;
+    header->h = h;
+    header->stride = w * 2;
+}
+static inline void wf_draw_buf_set_height(lv_draw_buf_t *buf, uint32_t h) { buf->header.h = h; }
+
+// Diagnostics: the pixels LVGL is about to redraw (the display's invalid areas, joined ones skipped)
+#include "src/display/lv_display_private.h"
+static inline uint32_t wf_display_invalid_areas(lv_display_t *disp) { return disp->inv_p; }
+static inline uint32_t wf_display_invalid_pixels(lv_display_t *disp)
+{
+    uint32_t px = 0;
+    for (uint32_t i = 0; i < disp->inv_p; i++) {
+        if (!disp->inv_area_joined[i]) {
+            px += lv_area_get_size(&disp->inv_areas[i]);
+        }
+    }
+    return px;
+}
+
+#include <fcntl.h>
+// open() is variadic (Swift can't call it)
+static inline int wf_open_read(const char *path) { return open(path, O_RDONLY); }

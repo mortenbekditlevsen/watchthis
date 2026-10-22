@@ -1,6 +1,6 @@
 idf_component_register(
     SRCS "main.cpp" "time_sync.cpp" "rtc_pcf85063.cpp" "pmu.cpp" "power_manager.cpp" "battery_log.cpp" "audio_power.cpp"
-         "watch_name.cpp"
+         "watch_name.cpp" "ble_background.cpp"
     INCLUDE_DIRS ".")
 
 target_compile_options(${COMPONENT_LIB} PUBLIC -Wno-missing-field-initializers)

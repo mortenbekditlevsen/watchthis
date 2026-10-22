@@ -3,8 +3,33 @@
 // LVGL then reads just the rows it redraws from that file (through the "S:" stdio driver), so redrawing the area
 // under a moving hand is cheap; decoding a compressed image would restart from the top every time.
 //
-// One conversion at a time. The state is shared between the LVGL task and the worker task through `workerState`
-// (atomic); the id/matte fields are only written while the worker is idle.
+// Expensive gradients (radial, angled) are pre-drawn the same way (GradientRaster), so redraws only read rows.
+//
+// One job at a time. The state is shared between the LVGL task and the worker task through `workerState` (atomic);
+// `workerJob` is only written while the worker is idle.
+
+/// What to prepare: an uploaded image, or a gradient to draw. `key` names the cache file.
+enum BackgroundJob {
+    case asset(id: String, matte: FaceColor)
+    case gradient(GradientRaster)
+
+    var key: String {
+        switch self {
+        case .asset(let id, _): id
+        case .gradient(let raster): raster.cacheKey
+        }
+    }
+}
+
+extension BackgroundJob {
+    /// What a background needs prepared first, if anything
+    static func needed(for background: Background) -> BackgroundJob? {
+        switch background {
+        case .image(let i): return .asset(id: i.assetID, matte: i.fallback)
+        default: return nil
+        }
+    }
+}
 
 enum ImageWorker {
     static let cacheDir = "/store/cache"
@@ -34,6 +59,48 @@ enum ImageWorker {
         }
     }
 
+    /// Files drawn on the watch (not converted uploads): thumbnails ("tq_"), and from older firmware pre-drawn
+    /// gradients ("grad_"), static layers ("st_") and half-size thumbnails ("th_"), which are just deleted
+    static let drawnPrefixes = ["grad_", "st_", "th_", "tq_"]
+
+    static func isDrawn(_ name: String) -> Bool {
+        drawnPrefixes.contains { name.utf8.starts(with: $0.utf8) }
+    }
+
+    /// Deletes drawn files no face uses any more (each edit of a face makes new ones). At boot, before the worker
+    /// and the baker run.
+    static func removeUnusedDrawn(keep keys: [String]) {
+        guard let dir = cacheDir.withCString({ opendir($0) }) else { return }
+        var unused: [String] = []
+        while let entry = readdir(dir) {
+            let name = withUnsafeBytes(of: entry.pointee.d_name) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+            guard isDrawn(name) else { continue }
+            let used = keys.contains { key in
+                name.utf8.elementsEqual((key + cacheSuffix).utf8)
+            }
+            if !used { unused.append(name) }
+        }
+        closedir(dir)
+        for name in unused {
+            _ = (cacheDir + "/" + name).withCString { unlink($0) }
+        }
+    }
+
+    /// Deletes all baked static layers and thumbnails (a face asset changed); LVGL task, with no face showing one
+    static func removeBaked() {
+        StoreImageDecoder.release()
+        guard let dir = cacheDir.withCString({ opendir($0) }) else { return }
+        var baked: [String] = []
+        while let entry = readdir(dir) {
+            let name = withUnsafeBytes(of: entry.pointee.d_name) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+            if name.utf8.starts(with: "tq_".utf8) { baked.append(name) }
+        }
+        closedir(dir)
+        for name in baked {
+            _ = (cacheDir + "/" + name).withCString { unlink($0) }
+        }
+    }
+
     static func hasRoomToConvert() -> Bool {
         heap_caps_get_largest_free_block(UInt32(MALLOC_CAP_INTERNAL)) >= 48 * 1024
     }
@@ -45,36 +112,38 @@ enum ImageWorker {
         _ = cachePath(assetID).withCString { unlink($0) }
     }
 
-    /// Point `image` at the converted file if it exists
-    static func showIfReady(_ assetID: String, on image: LVObj) -> Bool {
-        if wf_atomic_load(&workerState) != stateIdle && workerAsset.utf8.elementsEqual(assetID.utf8) {
-            return false // still converting (or failed, see request)
+    /// Point `image` at the prepared file if it exists
+    static func showIfReady(_ key: String, on image: LVObj) -> Bool {
+        if wf_atomic_load(&workerState) != stateIdle, let job = workerJob, job.key.utf8.elementsEqual(key.utf8) {
+            return false // still preparing (or failed, see request)
         }
-        let path = cachePath(assetID)
+        let path = cachePath(key)
         guard fileExists(path) else { return false }
         ("S:" + path).withCString { lv_image_set_src(image, $0) }
         return true
     }
 
-    /// Start converting `assetID` unless that's already done or underway
-    static func request(_ assetID: String, matte: FaceColor) {
+    /// Start preparing `job` unless that's already done or underway
+    static func request(_ job: BackgroundJob) {
         let state = wf_atomic_load(&workerState)
         if state == stateDone || state == stateFailed {
-            if state == stateFailed { failedAssets.append(workerAsset) }
+            if state == stateFailed, let failed = workerJob { failedAssets.append(failed.key) }
             wf_atomic_store(&workerState, stateIdle)
         } else if state != stateIdle {
             return
         }
+        let key = job.key
         // Don't retry a file that can't be converted (until something is uploaded: the carousel clears the list)
-        guard !failedAssets.contains(where: { $0.utf8.elementsEqual(assetID.utf8) }) else { return }
-        guard fileExists(storePath(FILE_STORE_FACE_ASSET, assetID) ?? ""), !fileExists(cachePath(assetID)) else {
+        guard !failedAssets.contains(where: { $0.utf8.elementsEqual(key.utf8) }), !fileExists(cachePath(key)) else {
             return
         }
-        // The conversion needs ~45 KB (PNG: inflate state + 32 KB window). With BLE on (Synk, or charging) there may
-        // not be that much: wait, the face asks again on its next tick
-        guard hasRoomToConvert() else { return }
-        workerAsset = assetID
-        workerMatte = matte
+        if case .asset(let id, _) = job {
+            guard fileExists(storePath(FILE_STORE_FACE_ASSET, id) ?? "") else { return }
+            // The conversion needs ~45 KB (PNG: inflate state + 32 KB window). With BLE on (Synk, or charging) there
+            // may not be that much: wait, the face asks again on its next tick. (A gradient needs one row.)
+            guard hasRoomToConvert() else { return }
+        }
+        workerJob = job
         wf_atomic_store(&workerState, stateBusy)
         // Priority 2: below LVGL (and everything interactive); 8 KB stack (TJPGD/tinfl work memory is on the heap)
         if !wf_task_create({ _ in imageWorkerMain() }, "face_image", 8192, 2) {
@@ -83,6 +152,35 @@ enum ImageWorker {
     }
 
     // MARK: - Conversion (worker task)
+
+    static func prepare(_ job: BackgroundJob) -> Bool {
+        switch job {
+        case .asset(let id, let matte): convert(id, matte: matte)
+        case .gradient(let raster): draw(raster)
+        }
+    }
+
+    /// Draws a gradient into its cache file, row by row
+    static func draw(_ raster: GradientRaster) -> Bool {
+        _ = cacheDir.withCString { mkdir($0, 0o775) }
+        let target = cachePath(raster.cacheKey)
+        let tmp = target + ".tmp"
+        guard let output = tmp.withCString({ fopen($0, "wb") }) else { return false }
+        let start = lv_tick_get()
+        var ok = writeHeader(output, width: raster.width, height: raster.height)
+        var row: [UInt8] = []
+        for y in 0..<raster.height where ok {
+            raster.row(y, into: &row)
+            ok = fwrite(row, 1, row.count, output) == row.count
+        }
+        fclose(output)
+        guard ok, tmp.withCString({ t in target.withCString { rename(t, $0) } }) == 0 else {
+            _ = tmp.withCString { unlink($0) }
+            return false
+        }
+        print("watch_faces: gradient \(raster.cacheKey) drawn in \(lv_tick_elaps(start)) ms")
+        return true
+    }
 
     static func convert(_ assetID: String, matte: FaceColor) -> Bool {
         guard let source = storePath(FILE_STORE_FACE_ASSET, assetID) else { return false }
@@ -245,7 +343,12 @@ enum ImageWorker {
 }
 
 private func imageWorkerMain() {
-    let ok = ImageWorker.convert(workerAsset, matte: workerMatte)
+    guard let job = workerJob else {
+        wf_atomic_store(&workerState, stateFailed)
+        vTaskDelete(nil)
+        return
+    }
+    let ok = ImageWorker.prepare(job)
     // Out of memory (something else took it meanwhile) isn't the file's fault: try again later
     let failure = ImageWorker.hasRoomToConvert() ? stateFailed : stateIdle
     wf_atomic_store(&workerState, ok ? stateDone : failure)
@@ -257,5 +360,4 @@ private let stateBusy: Int32 = 1
 private let stateDone: Int32 = 2
 private let stateFailed: Int32 = 3
 nonisolated(unsafe) private var workerState: Int32 = 0
-nonisolated(unsafe) private var workerAsset = ""
-nonisolated(unsafe) private var workerMatte = FaceColor.black
+nonisolated(unsafe) private var workerJob: BackgroundJob?

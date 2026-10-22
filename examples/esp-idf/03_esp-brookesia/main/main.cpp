@@ -26,6 +26,8 @@
 #include "watch_name.hpp"
 #include "watch_faces.h"
 #include "watch_tools.h"
+#include "ble_background.hpp"
+#include "src/display/lv_display_private.h"
 
 using namespace esp_brookesia;
 using namespace esp_brookesia::gui;
@@ -49,7 +51,7 @@ constexpr uint32_t STEPS_SAVE_S = 60 * 60;
 constexpr const char *BOOT_APP_NAME = "Ur";
 
 // Launcher order (registry names, i.e. the app titles), 4 per page; apps not listed follow in registration order
-static const char *const APP_ORDER[] = {"Ur", "Skridt", "Stopur", "Tidstagning", "Vejr", "Katte", "Musik", "Partikler", "Det lille spil", "Synk"};
+static const char *const APP_ORDER[] = {"Ur", "Skridt", "Stopur", "Tidstagning", "Vejr", "Katte", "Musik", "Partikler", "Det lille spil", "Basket", "Synk"};
 
 // The watch's name is the home screen title, shown in the band between the status bar and the app launcher (see
 // dark/app_launcher_data.hpp). It's stored on the watch (watch_name.cpp); this is only the initial name of a watch
@@ -72,6 +74,60 @@ static bool send_app_event(int id, systems::base::Context::AppEventType type)
         .data = nullptr,
     };
     return phone_instance->sendAppEvent(&event);
+}
+
+// The home screen after a swipe up is drawn from the bottom up, following the swipe. There's no
+// RAM for a whole frame, so LVGL draws (and sends) the screen in strips, top to bottom, which looks like the screen
+// arriving from the top. On the next refresh with a full-screen area (the new screen), that area becomes strips
+// listed bottom first: LVGL draws them in list order (and doesn't join strips that only touch).
+static constexpr int BOTTOM_UP_STRIPS = 6;
+static constexpr int BOTTOM_UP_WAIT_FRAMES = 10; // The home screen is loaded within this many refreshes, or never
+static int bottom_up_frames_left = 0;
+
+static void on_refresh_bottom_up(lv_event_t *event)
+{
+    lv_display_t *disp = static_cast<lv_display_t *>(lv_event_get_target(event));
+    const int32_t w = lv_display_get_horizontal_resolution(disp);
+    const int32_t h = lv_display_get_vertical_resolution(disp);
+    bool full = false;
+    for (uint32_t i = 0; i < disp->inv_p; i++) {
+        const lv_area_t &a = disp->inv_areas[i];
+        if ((disp->inv_area_joined[i] == 0) && (a.x1 <= 0) && (a.y1 <= 0) && (a.x2 >= w - 1) && (a.y2 >= h - 1)) {
+            full = true;
+            break;
+        }
+    }
+    if (full && (BOTTOM_UP_STRIPS <= LV_INV_BUF_SIZE)) {
+        // Strips start on even rows: the panel takes areas only that way (the BSP's rounder does it for areas LVGL
+        // invalidates itself, not for these)
+        auto boundary = [h](int i) {
+            return (i >= BOTTOM_UP_STRIPS) ? h : ((h * i / BOTTOM_UP_STRIPS) & ~1);
+        };
+        disp->inv_p = 0;
+        for (int i = BOTTOM_UP_STRIPS - 1; i >= 0; i--) {
+            lv_area_t &a = disp->inv_areas[disp->inv_p];
+            a.x1 = 0;
+            a.x2 = w - 1;
+            a.y1 = boundary(i);
+            a.y2 = boundary(i + 1) - 1;
+            disp->inv_area_joined[disp->inv_p] = 0;
+            disp->inv_p++;
+        }
+    }
+    if (full || (--bottom_up_frames_left <= 0)) {
+        lv_display_remove_event_cb_with_user_data(disp, on_refresh_bottom_up, nullptr);
+        bottom_up_frames_left = 0;
+    }
+}
+
+static void refresh_next_screen_bottom_up(void)
+{
+    lv_display_t *disp = lv_display_get_default();
+    if ((disp == nullptr) || (bottom_up_frames_left > 0)) {
+        return;
+    }
+    bottom_up_frames_left = BOTTOM_UP_WAIT_FRAMES;
+    lv_display_add_event_cb(disp, on_refresh_bottom_up, LV_EVENT_REFR_START, nullptr);
 }
 
 // Power key as a back button (called by the power manager with the LVGL lock held): an open app closes (back to the
@@ -125,6 +181,13 @@ extern "C" void app_main(void)
 
     /* Watch faces (the "Ur" app): uploaded faces and their order come from the paired phone via BLE */
     watch_faces_init();
+    // Home after a swipe up (from any app): the home screen appears from the bottom
+    systems::phone::Manager::on_going_home = refresh_next_screen_bottom_up;
+    watch_faces_set_home_handler([]() {
+        if (phone_instance != nullptr) {
+            phone_instance->sendNavigateEvent(systems::base::Manager::NavigateType::HOME);
+        }
+    });
     watch_faces_set_battery_source([]() {
         PmuBattery battery;
         return (pmu_battery(&battery) && battery.present) ? battery.percent : -1;
@@ -218,14 +281,17 @@ extern "C" void app_main(void)
         /* Bluetooth sync while charging, without opening Synk (the phone app connects by itself): only on the watch
          * face or an empty home screen, where nothing else needs the RAM (BLE and the MP3 decoder don't both fit), and
          * never while music plays or is paused. Checked often, so BLE is gone right after another app opens.
-         * Starting/stopping blocks the LVGL task briefly. Unplugging while asleep: see power_manager.cpp. */
+         * Starting/stopping happens on its own task (ble_background.cpp). Unplugging while asleep: power_manager.cpp. */
+        ble_background_start();
         lv_timer_create([](lv_timer_t *) {
             auto &manager = phone_instance->getManager();
             auto *app = manager.getActiveApp();
-            // The home screen counts only without a paused app (that app's memory is still in use)
-            const bool quiet_screen = ((app == nullptr) && (manager.getRunningAppCount() == 0)) ||
-                                      ((app != nullptr) && (app->getId() == watch_app_id));
-            ble_sync_set_background(pmu_vbus_present() && quiet_screen && !music_player_is_active());
+            // On the face, or at home with nothing paused but the face (another paused app still holds its memory).
+            // Going face -> home -> face must not flip BLE (each start/stop takes a while)
+            auto *paused = (manager.getRunningAppCount() > 0) ? manager.getRunningAppByIdenx(0) : nullptr;
+            const bool quiet_screen = (app != nullptr) ? (app->getId() == watch_app_id)
+                                                       : ((paused == nullptr) || (paused->getId() == watch_app_id));
+            ble_background_want(pmu_vbus_present() && quiet_screen && !music_player_is_active());
         }, 500, nullptr);
 
         /* Create a timer to update the clock */
@@ -285,7 +351,16 @@ extern "C" void app_main(void)
     }
 
     /* Power button: back (app → home → watch), then sleep; also sleep after a while idle on the home screen */
-    if (pmu_init()) {
+    // The PMU is on the I2C bus with the touch controller and the RTC; one failed transfer at boot shouldn't cost the
+    // power button for the whole run
+    bool pmu_ok = false;
+    for (int attempt = 0; (attempt < 3) && !pmu_ok; attempt++) {
+        if (attempt > 0) {
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+        pmu_ok = pmu_init();
+    }
+    if (pmu_ok) {
         power_manager_start(phone->getDisplay().getMainScreen(), on_power_key);
     } else {
         ESP_UTILS_LOGE("Power button not available, sleep disabled");

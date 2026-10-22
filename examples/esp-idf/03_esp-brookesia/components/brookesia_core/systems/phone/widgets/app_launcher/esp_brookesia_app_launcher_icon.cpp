@@ -15,6 +15,12 @@ using namespace esp_brookesia::gui;
 
 namespace esp_brookesia::systems::phone {
 
+// Watch: where and when the current press started (one touch at a time), for telling a tap from a short swipe
+static lv_point_t s_press_point = {};
+static uint32_t s_press_tick = 0;
+static constexpr int32_t TAP_MAX_MOVE = 15;     // px
+static constexpr uint32_t TAP_MAX_MS = 500;
+
 AppLauncherIcon::AppLauncherIcon(base::Context &core, const Info &info, const Data &data):
     _system_context(core),
     _info(info),
@@ -206,16 +212,27 @@ void AppLauncherIcon::onIconTouchEventCallback(lv_event_t *event)
     ESP_UTILS_CHECK_NULL_EXIT(icon_image_obj, "Invalid icon image");
 
     switch (event_code) {
-    case LV_EVENT_CLICKED:
+    case LV_EVENT_CLICKED: {
         ESP_UTILS_LOGD("Clicked");
         if (icon->_flags.is_pressed_losted || icon->_flags.is_click_disable) {
+            break;
+        }
+        // Watch: only a real tap opens the app. A short swipe that stays on the (large) icon is a click to LVGL
+        // too, and opened apps while swiping between pages.
+        lv_point_t point;
+        lv_indev_get_point(lv_indev_active(), &point);
+        const int32_t dx = point.x - s_press_point.x, dy = point.y - s_press_point.y;
+        if ((dx * dx + dy * dy > TAP_MAX_MOVE * TAP_MAX_MOVE) || (lv_tick_elaps(s_press_tick) > TAP_MAX_MS)) {
             break;
         }
         app_event_data.id = icon->_info.id;
         ESP_UTILS_CHECK_FALSE_EXIT(icon->_system_context.sendAppEvent(&app_event_data), "Send app event failed");
         break;
+    }
     case LV_EVENT_PRESSED:
         ESP_UTILS_LOGD("Pressed");
+        lv_indev_get_point(lv_indev_active(), &s_press_point);
+        s_press_tick = lv_tick_get();
         if (icon->_flags.is_click_disable) {
             break;
         }

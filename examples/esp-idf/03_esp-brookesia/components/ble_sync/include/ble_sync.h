@@ -76,7 +76,8 @@ void ble_sync_stop(void);
 
 /* BLE without the Synk app (e.g. while charging): starts it if the watch is paired with a phone (no pairing window:
  * there's no screen for the code), and stops it again when off unless Synk has it (ble_sync_start). Blocks while
- * starting/stopping. Call from one task (the LVGL task), or while that task can't run. */
+ * starting/stopping (so not from the LVGL task: main/ble_background.cpp has a task for it). Thread-safe, like the
+ * rest of this API. */
 void ble_sync_set_background(bool on);
 
 bool ble_sync_is_active(void);
