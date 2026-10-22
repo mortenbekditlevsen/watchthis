@@ -16,6 +16,7 @@ Usage (open the "Synk" app on the watch first):
     tools/.venv/bin/python tools/ble_test_client.py delete photo|music|face|asset ID
     tools/.venv/bin/python tools/ble_test_client.py read face|asset ID OUT     # download a file
     tools/.venv/bin/python tools/ble_test_client.py name ["Mit ur"]    # show / set the home screen title
+    tools/.venv/bin/python tools/ble_test_client.py birthday MM-DD|none  # Danish flag on the faces that day
     tools/.venv/bin/python tools/ble_test_client.py faces              # watch faces: order, active, builtins
     tools/.venv/bin/python tools/ble_test_client.py face-order ID... [--active N]   # which faces to show, in order
 
@@ -255,6 +256,12 @@ class Watch:
         out.write_bytes(data)
         print(f"Read {kind}/{ident}: {len(data)} bytes -> {out}")
 
+    async def set_birthday(self, date: str):
+        month, day = (0, 0) if date == "none" else map(int, date.split("-"))
+        await self.command(bytes([0x0D, month, day]))
+        await self.result(0x0D)
+        print("Birthday cleared" if month == 0 else f"Birthday set to {day}/{month}")
+
     async def delete(self, kind: str, ident: str):
         await self.command(bytes([0x07, KINDS[kind]]) + ident.encode())
         await self.result(0x07)
@@ -281,6 +288,7 @@ async def main():
     rd.add_argument("kind", choices=KINDS)
     rd.add_argument("id")
     rd.add_argument("out", type=Path)
+    sub.add_parser("birthday").add_argument("date")
     sub.add_parser("faces")
     fo = sub.add_parser("face-order")
     fo.add_argument("ids", nargs="+")
@@ -313,6 +321,8 @@ async def main():
             await watch.delete(args.kind, args.id)
         elif args.cmd == "read":
             await watch.read(args.kind, args.id, args.out)
+        elif args.cmd == "birthday":
+            await watch.set_birthday(args.date)
         elif args.cmd == "faces":
             await watch.faces()
         elif args.cmd == "face-order":

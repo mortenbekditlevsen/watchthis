@@ -14,6 +14,7 @@ final class Carousel {
     private var timer: OpaquePointer?
     private let toast: LVObj
     private var toastShownAt: UInt32 = 0
+    private let birthday: BirthdayDecoration
 
     init() {
         screen = lv_obj_create(nil)!
@@ -34,6 +35,7 @@ final class Carousel {
         lv_obj_set_style_pad_ver(toast, 6, partMain)
         lv_obj_align(toast, LV_ALIGN_TOP_MID, 0, 24)
         lv_obj_add_flag(toast, LV_OBJ_FLAG_HIDDEN)
+        birthday = BirthdayDecoration(screen: screen)
 
         let visible = FaceStore.visible()
         ids = visible.ids
@@ -45,10 +47,12 @@ final class Carousel {
         }, LV_EVENT_GESTURE, nil)
 
         showCurrent()
+        birthday.update(currentWallTime())
         timer = lv_timer_create({ _ in carousel?.tick() }, current?.updatePeriod ?? 1000, nil)
     }
 
     func stop() {
+        birthday.stop()
         if let timer { lv_timer_delete(timer) }
         timer = nil
         finishSlide()
@@ -81,7 +85,9 @@ final class Carousel {
             showCurrent()
             return
         }
-        current?.update(currentWallTime())
+        let now = currentWallTime()
+        current?.update(now)
+        birthday.update(now)
         if !lv_obj_has_flag(toast, LV_OBJ_FLAG_HIDDEN) && lv_tick_elaps(toastShownAt) > toastDuration {
             lv_obj_add_flag(toast, LV_OBJ_FLAG_HIDDEN)
         }

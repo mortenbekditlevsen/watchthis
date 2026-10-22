@@ -58,6 +58,12 @@ void music_player_get_status(music_player_status_t *status);
 /* True while audio is playing: the watch mustn't enter light sleep then (it would stop the sound). */
 bool music_player_is_playing(void);
 
+/* Timer alarm: beeps on the speaker until music_player_alarm_stop() or for at most a minute; stops the music first.
+ * While it sounds the watch mustn't enter light sleep either. */
+void music_player_alarm_start(void);
+void music_player_alarm_stop(void);
+bool music_player_alarm_active(void);
+
 /* True while playing or paused (the audio hardware is in use). */
 bool music_player_is_active(void);
 

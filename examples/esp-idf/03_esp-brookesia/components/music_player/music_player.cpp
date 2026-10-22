@@ -1,6 +1,7 @@
 /*
  * SPDX-License-Identifier: CC0-1.0
  */
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <mutex>
@@ -28,7 +29,7 @@ static constexpr UBaseType_t TASK_PRIORITY = 4;
 static constexpr UBaseType_t AUDIO_TASK_PRIORITY = 5;   // Above the UI, so drawing doesn't starve the audio
 static constexpr const char *NVS_NAMESPACE = "music";
 
-enum class Cmd : uint8_t { Play, Toggle, Next, Prev, Stop, TrackEnded, Volume, Tick };
+enum class Cmd : uint8_t { Play, Toggle, Next, Prev, Stop, TrackEnded, Volume, Tick, Alarm };
 
 struct Message {
     Cmd cmd;
@@ -51,6 +52,14 @@ static bool codec_open = false;
 static bool player_created = false;
 static volatile bool stop_requested = false;
 static volatile int stream_channels = 1;
+static volatile bool alarm_on = false;     // Set by the API; the control task beeps while it's true
+
+// Alarm sound: bursts of four short beeps
+static constexpr uint32_t ALARM_RATE = 16000;
+static constexpr int ALARM_TONE_HZ = 2000;
+static constexpr int ALARM_BEEP_MS = 90, ALARM_GAP_MS = 70, ALARM_BEEPS = 4, ALARM_PAUSE_MS = 600;
+static constexpr int ALARM_MIN_VOLUME = 75;
+static constexpr int64_t ALARM_MAX_US = 60LL * 1000 * 1000;
 
 // ---- Audio callbacks (audio task) ----
 
@@ -222,6 +231,55 @@ static void stop(void)
     set_state(MUSIC_PLAYER_STOPPED);
 }
 
+// Writes the beep pattern until alarm_on is cleared (or a minute has passed). Blocks the control task meanwhile.
+static void sound_alarm(void)
+{
+    stop();     // The music, if any: the alarm takes over the speaker
+    if (speaker == nullptr) {
+        speaker = bsp_audio_codec_speaker_init();
+    }
+    esp_codec_dev_sample_info_t fs = {};
+    fs.sample_rate = ALARM_RATE;
+    fs.channel = 1;
+    fs.bits_per_sample = 16;
+    if ((speaker == nullptr) || (esp_codec_dev_open(speaker, &fs) != ESP_CODEC_DEV_OK)) {
+        ESP_LOGE(TAG, "Alarm: speaker not available");
+        alarm_on = false;
+        return;
+    }
+    int vol;
+    {
+        std::lock_guard<std::mutex> guard(lock);
+        vol = (volume > ALARM_MIN_VOLUME) ? volume : ALARM_MIN_VOLUME;
+    }
+    esp_codec_dev_set_out_vol(speaker, vol);
+
+    constexpr int CHUNK = ALARM_RATE / 100;     // 10 ms
+    static int16_t samples[CHUNK];
+    constexpr int PERIOD_MS = ALARM_BEEPS * (ALARM_BEEP_MS + ALARM_GAP_MS) + ALARM_PAUSE_MS;
+    const int64_t started = esp_timer_get_time();
+    int64_t n = 0;  // Samples written
+    while (alarm_on && (esp_timer_get_time() - started < ALARM_MAX_US)) {
+        for (int i = 0; i < CHUNK; i++, n++) {
+            const int ms = (int)((n * 1000 / ALARM_RATE) % PERIOD_MS);
+            const int slot = ms / (ALARM_BEEP_MS + ALARM_GAP_MS);
+            const int in_slot = ms % (ALARM_BEEP_MS + ALARM_GAP_MS);
+            float amplitude = 0;
+            if ((slot < ALARM_BEEPS) && (in_slot < ALARM_BEEP_MS)) {
+                // 5 ms fade in and out, so the beeps don't click
+                const float edge = fminf(in_slot, ALARM_BEEP_MS - in_slot) / 5.0f;
+                amplitude = 12000 * fminf(1.0f, edge);
+            }
+            samples[i] = (int16_t)(amplitude * sinf(2 * (float)M_PI * ALARM_TONE_HZ * (float)n / ALARM_RATE));
+        }
+        if (esp_codec_dev_write(speaker, samples, sizeof(samples)) != ESP_CODEC_DEV_OK) {
+            break;
+        }
+    }
+    esp_codec_dev_close(speaker);
+    alarm_on = false;
+}
+
 static void handle(const Message &msg)
 {
     music_player_state_t st;
@@ -285,6 +343,11 @@ static void handle(const Message &msg)
     case Cmd::Volume:
         if (codec_open) {
             esp_codec_dev_set_out_vol(speaker, msg.arg);
+        }
+        break;
+    case Cmd::Alarm:
+        if (alarm_on) {
+            sound_alarm();
         }
         break;
     case Cmd::Tick:
@@ -437,6 +500,24 @@ void music_player_get_status(music_player_status_t *status)
         elapsed = paused_at_us - play_started_us;
     }
     status->elapsed_s = (uint32_t)(elapsed / 1000000);
+}
+
+void music_player_alarm_start(void)
+{
+    if (!alarm_on) {
+        alarm_on = true;
+        post(Cmd::Alarm);
+    }
+}
+
+void music_player_alarm_stop(void)
+{
+    alarm_on = false;
+}
+
+bool music_player_alarm_active(void)
+{
+    return alarm_on;
 }
 
 bool music_player_is_playing(void)

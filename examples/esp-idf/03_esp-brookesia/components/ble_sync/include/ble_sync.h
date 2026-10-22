@@ -57,6 +57,8 @@ typedef struct {
     int (*get_state)(uint8_t *buf, size_t max);
     /* Apply a SetFaceOrder payload; returns a Result status (0 = OK, 1 = failed, 2 = invalid) */
     uint8_t (*set_order)(const uint8_t *payload, size_t len);
+    /* Apply a SetBirthday (month 1-12, day 1-31; 0/0 = none); returns a Result status */
+    uint8_t (*set_birthday)(uint8_t month, uint8_t day);
     /* JSON array of the face features this firmware can draw, for DEVICE_INFO; must stay valid */
     const char *features_json;
 } ble_sync_face_handlers_t;

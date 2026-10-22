@@ -31,6 +31,7 @@ private func makeDeviceInfo() -> [UInt8] {
     var face = ""
     if let handlers = faceHandlers, let features = handlers.features_json {
         caps.append("WatchFaces")
+        if handlers.set_birthday != nil { caps.append("Birthday") }
         face = ",\"face\":{\"format\":\(faceFormatVersion),\"w\":\(photoWidth),\"h\":\(photoHeight)," +
             "\"features\":\(String(cString: features))}"
     }
@@ -60,6 +61,7 @@ private enum Opcode: UInt8 {
     case setFaceOrder = 0x0A    // App -> device: active(1) count(1) {id_len(1) id}*
     case getFaceState = 0x0B    // App -> device: (empty)
     case fileRead = 0x0C        // App -> device: kind(1) offset(4) length(2) id(rest)
+    case setBirthday = 0x0D     // App -> device: month(1) day(1); 0 0 = none
     case result = 0x80          // Device -> app: request opcode(1) status(1)
     case storageInfoReply = 0x81    // Device -> app: total(4) used(4) photos(2) music(2)
     case listReply = 0x82           // Device -> app: kind(1) start(2) total(2) count(1) {id_len(1) id size(4) name_len(1) name}*
@@ -365,6 +367,15 @@ private func handleCommand(_ bytes: [UInt8], connHandle: UInt16) -> Int32 {
         let offset = readUInt32LE(payload, at: 1)
         let length = Int(payload[5]) | (Int(payload[6]) << 8)
         sendFileData(connHandle: connHandle, kind: kind, offset: offset, length: length, id: Array(payload[7...]))
+        return 0
+
+    case .setBirthday:
+        guard payload.count == 2 else { return Int32(BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN) }
+        var status = ResultStatus.invalid
+        if let handlers = faceHandlers, let setBirthday = handlers.set_birthday {
+            status = ResultStatus(rawValue: setBirthday(payload[0], payload[1])) ?? .failed
+        }
+        sendResult(connHandle: connHandle, opcode: .setBirthday, status: status)
         return 0
 
     case .result, .storageInfoReply, .listReply, .progress, .nameReply, .faceStateReply, .fileData:

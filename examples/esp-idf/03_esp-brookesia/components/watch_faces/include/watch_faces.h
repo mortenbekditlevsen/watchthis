@@ -28,6 +28,9 @@ void watch_faces_set_battery_source(int (*percent)(void));
 /* For ble_sync's face handlers (docs/watch-ble-protocol.md §12); from the BLE host task. */
 int watch_faces_get_state(uint8_t *buf, size_t max);
 uint8_t watch_faces_set_order(const uint8_t *payload, size_t len);
+/* The wearer's birthday (month 1-12, day 1-31; 0/0 = none): a Danish flag on the faces that day. Returns a Result
+ * status (0 = OK, 1 = failed, 2 = invalid). */
+uint8_t watch_faces_set_birthday(uint8_t month, uint8_t day);
 /* JSON array of the face features this firmware draws (for DEVICE_INFO) */
 const char *watch_faces_features_json(void);
 

@@ -19,6 +19,7 @@
 #include "ble_sync.h"
 #include "step_counter.h"
 #include "music_player.h"
+#include "watch_tools.h"
 #include "time_sync.hpp"
 #include "power_manager.hpp"
 
@@ -114,6 +115,13 @@ static bool is_night(void)
     return (t.tm_hour >= NIGHT_START_HOUR) || (t.tm_hour < NIGHT_END_HOUR);
 }
 
+// A running timer (Timer app) is due: wake up so it can ring
+static bool timer_due(void)
+{
+    const int64_t wake_at = watch_tools_wake_at_us();
+    return (wake_at > 0) && (esp_timer_get_time() >= wake_at);
+}
+
 static bool home_screen_idle(void)
 {
     bool idle = false;
@@ -151,7 +159,7 @@ static void sleep_until_power_key(void)
     esp_sleep_enable_timer_wakeup(POLL_PERIOD_MS * 1000);
     set_phase(Phase::Sleeping);
     const int64_t asleep_since = esp_timer_get_time();
-    while (!pmu_pkey_short_pressed()) {
+    while (!pmu_pkey_short_pressed() && !timer_due()) {
         battery_log_poll(true);
         step_counter_poll();    // The IMU's FIFO holds only ~4 s of samples
         const bool on_battery = !pmu_vbus_present();
@@ -163,7 +171,7 @@ static void sleep_until_power_key(void)
             pmu_power_off();
             vTaskDelay(portMAX_DELAY);
         }
-        if (ble_sync_is_active() || music_player_is_playing() || !on_battery) {
+        if (ble_sync_is_active() || music_player_is_playing() || music_player_alarm_active() || !on_battery) {
             // Screen off only: light sleep would cut off the BLE link (Synk app), the music or the USB connection
             vTaskDelay(pdMS_TO_TICKS(POLL_PERIOD_MS));
         } else {

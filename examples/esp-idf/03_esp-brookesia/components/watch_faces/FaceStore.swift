@@ -130,6 +130,8 @@ private func uploadChanged(_ kind: file_store_kind_t, _ id: UnsafePointer<CChar>
 
 @_cdecl("watch_faces_init")
 public func watch_faces_init() {
+    ImageWorker.removeStaleCaches()
+    Birthday.load()
     file_store_set_hooks({ kind, path in checkUpload(kind, path) }, { kind, id, removed in
         uploadChanged(kind, id, removed)
     })

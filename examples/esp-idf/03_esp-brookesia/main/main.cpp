@@ -25,6 +25,7 @@
 #include "watch_fonts.h"
 #include "watch_name.hpp"
 #include "watch_faces.h"
+#include "watch_tools.h"
 
 using namespace esp_brookesia;
 using namespace esp_brookesia::gui;
@@ -48,7 +49,7 @@ constexpr uint32_t STEPS_SAVE_S = 60 * 60;
 constexpr const char *BOOT_APP_NAME = "Ur";
 
 // Launcher order (registry names, i.e. the app titles), 4 per page; apps not listed follow in registration order
-static const char *const APP_ORDER[] = {"Ur", "Skridt", "Katte", "Musik", "Partikler", "Det lille spil", "Synk"};
+static const char *const APP_ORDER[] = {"Ur", "Skridt", "Stopur", "Timer", "Katte", "Musik", "Partikler", "Det lille spil", "Synk"};
 
 // The watch's name is the home screen title, shown in the band between the status bar and the app launcher (see
 // dark/app_launcher_data.hpp). It's stored on the watch (watch_name.cpp); this is only the initial name of a watch
@@ -62,6 +63,7 @@ constexpr int32_t HOME_TITLE_WIDTH = 380;
 
 static Phone *phone_instance = nullptr;
 static int watch_app_id = -1;   // The boot app ("Ur"), -1 = not installed
+static int timer_app_id = -1;   // "Timer": opened when a timer is done
 
 static bool send_app_event(int id, systems::base::Context::AppEventType type)
 {
@@ -131,6 +133,7 @@ extern "C" void app_main(void)
     static const ble_sync_face_handlers_t face_handlers = {
         .get_state = watch_faces_get_state,
         .set_order = watch_faces_set_order,
+        .set_birthday = watch_faces_set_birthday,
         .features_json = watch_faces_features_json(),
     };
     ble_sync_set_face_handlers(&face_handlers);
@@ -209,6 +212,18 @@ extern "C" void app_main(void)
         if (!boot_app_started) {
             ESP_UTILS_LOGW("Boot app '%s' not started, staying on the launcher", BOOT_APP_NAME);
         }
+
+        /* Stopur and Timer: a timer that is done while the Timer app isn't shown opens it (it then rings) */
+        for (auto &[name, app] : inited_apps) {
+            if ((name == "Timer") && app) {
+                timer_app_id = app->getId();
+            }
+        }
+        watch_tools_init([]() {
+            if (timer_app_id >= 0) {
+                send_app_event(timer_app_id, systems::base::Context::AppEventType::START);
+            }
+        });
 
         /* Create a timer to update the clock */
         lv_timer_create([](lv_timer_t *t) {

@@ -21,9 +21,11 @@ target_sources(${COMPONENT_LIB}
     ${KIT}/Text.swift
     ${KIT}/Builtins.swift
     ${KIT}/PNG.swift
+    ${KIT}/Fireworks.swift
     LV.swift
     FaceRenderer.swift
     ImageWorker.swift
     FaceStore.swift
     Carousel.swift
+    Birthday.swift
 )

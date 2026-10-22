@@ -55,7 +55,7 @@ available encrypted, via GetName):
 ```json
 {"version":"1.0.0","apiVersion":1,
  "capabilities":["SetTime","StorageInfo","List","FileUpload","FileDelete","SetName","GetName","FileRead",
-                 "WatchFaces"],
+                 "WatchFaces","Birthday"],
  "photo":{"w":410,"h":502},
  "face":{"format":1,"w":410,"h":502,"features":["bg.color","bg.linearGradient","analogClock","steps",…]}}
 ```
@@ -173,6 +173,7 @@ Write to CMD **with response**. Replies arrive as encrypted CMD notifications. M
 | `0x0A` | SetFaceOrder | active(1) count(1) { id_len(1) id }… | Result |
 | `0x0B` | GetFaceState | (empty) | FaceStateReply |
 | `0x0C` | FileRead | kind(1) offset(4) length(2) id(rest) | FileData |
+| `0x0D` | SetBirthday | month(1) day(1); `0 0` = none | Result |
 
 Replies (watch → app):
 
@@ -204,6 +205,9 @@ Notes:
 - **SetTime:** the watch stores the time in its RTC and the TZ string in flash. iOS has no POSIX TZ API; derive
   the string from `TimeZone` (standard/daylight offsets and transition rules) or map common IANA zones, e.g.
   `Europe/Copenhagen` → `CET-1CEST,M3.5.0,M10.5.0/3`. Note the POSIX sign convention (`CET-1` = UTC+1).
+- **SetBirthday** (capability `Birthday`): the wearer's birthday. That day the watch faces show a Danish flag in
+  the top left corner; tapping it sets off fireworks. Born on 29 February: shown on 28 February in other years. The
+  watch keeps it across restarts; the app sends it (or `0 0`) on every connect, so the phone is the source of truth.
 - **SetName:** the home screen title; shown immediately and kept across restarts. 1–32 bytes, no control
   characters. Danish letters (ÆØÅæøå) are supported.
 - **List:** pages are sorted by id. Request `start = 0`, then `start += count` until `start >= total` (or

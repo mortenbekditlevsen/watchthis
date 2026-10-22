@@ -9,8 +9,29 @@
 enum ImageWorker {
     static let cacheDir = "/store/cache"
 
+    /// Bump the suffix when the conversion changes, so existing caches are made again (see removeStaleCaches)
+    static let cacheSuffix = ".v2.bin"
+
     static func cachePath(_ assetID: String) -> String {
-        cacheDir + "/" + assetID + ".bin"
+        cacheDir + "/" + assetID + cacheSuffix
+    }
+
+    /// Deletes cache files from older conversions (v1 swapped red and blue in JPEGs)
+    static func removeStaleCaches() {
+        guard let dir = cacheDir.withCString({ opendir($0) }) else { return }
+        var stale: [String] = []
+        while let entry = readdir(dir) {
+            let name = withUnsafeBytes(of: entry.pointee.d_name) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+            // UTF-8 comparisons: String == would pull Unicode normalization tables into the firmware
+            let isDots = name.utf8.allSatisfy { $0 == 0x2E }
+            if !isDots && !name.utf8.reversed().starts(with: cacheSuffix.utf8.reversed()) {
+                stale.append(name)
+            }
+        }
+        closedir(dir)
+        for name in stale {
+            _ = (cacheDir + "/" + name).withCString { unlink($0) }
+        }
     }
 
     static func removeCache(_ assetID: String) {
@@ -181,7 +202,8 @@ enum ImageWorker {
         context.band = band
         guard writeHeader(output, width: context.width, height: height) else { return false }
 
-        // Blocks arrive left to right, top to bottom, as RGB888; a row of blocks (a band) is written out at once
+        // Blocks arrive left to right, top to bottom, as RGB888 -- in memory order B, G, R (LVGL's TJPGD, like
+        // cats_jpeg_decoder.cpp). A row of blocks (a band) is written out at once
         let write: @convention(c) (UnsafeMutablePointer<JDEC>?, UnsafeMutableRawPointer?,
                                    UnsafeMutablePointer<JRECT>?) -> Int32 = { jd, bitmap, rect in
             let c = Unmanaged<JPEGContext>.fromOpaque(jd!.pointee.device!).takeUnretainedValue()
@@ -191,7 +213,7 @@ enum ImageWorker {
             for y in Int(r.top)...Int(r.bottom) {
                 let row = (y - c.bandTop) * c.width
                 for x in Int(r.left)...Int(r.right) {
-                    c.band![row + x] = RGB565.pack(rgb[i], rgb[i + 1], rgb[i + 2])
+                    c.band![row + x] = RGB565.pack(rgb[i + 2], rgb[i + 1], rgb[i])
                     i += 3
                 }
             }

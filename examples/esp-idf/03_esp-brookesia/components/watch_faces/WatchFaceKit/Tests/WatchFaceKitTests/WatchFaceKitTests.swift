@@ -309,3 +309,45 @@ import Testing
         #expect(decoded.glyphs[2].offsetX == -3 && decoded.glyphs[2].offsetY == -5)
     }
 }
+
+@Suite struct BirthdayTests {
+    func day(_ year: Int, _ month: Int, _ day: Int) -> WallTime {
+        WallTime(year: year, month: month, day: day, weekday: 0, hour: 12, minute: 0, second: 0)
+    }
+
+    @Test func isToday() throws {
+        let birthday = try #require(BirthdayDate(month: 10, day: 22))
+        #expect(birthday.isToday(day(2026, 10, 22)))
+        #expect(!birthday.isToday(day(2026, 10, 23)))
+        #expect(!birthday.isToday(day(1970, 10, 22))) // clock not set
+        #expect(BirthdayDate(month: 13, day: 1) == nil)
+    }
+
+    @Test func leapDay() throws {
+        let birthday = try #require(BirthdayDate(month: 2, day: 29))
+        #expect(birthday.isToday(day(2027, 2, 28)))
+        #expect(!birthday.isToday(day(2028, 2, 28)))
+        #expect(birthday.isToday(day(2028, 2, 29)))
+    }
+
+    @Test func fireworksLaunchBurstAndEnd() {
+        var fireworks = Fireworks(seed: 42, launchDuration: 2)
+        var most = 0
+        var lowest = Float(WatchScreen.height)
+        for _ in 0..<300 {
+            fireworks.step(1.0 / 30)
+            most = max(most, fireworks.sparks.count)
+            lowest = min(lowest, fireworks.sparks.map(\.y).min() ?? lowest)
+            #expect(fireworks.sparks.count <= Fireworks.maxSparks)
+        }
+        #expect(most > 40) // at least one burst
+        #expect(lowest > 0) // bursts stay on screen
+        #expect(fireworks.isFinished) // ten seconds is plenty for a two second show
+    }
+
+    @Test func flagProportions() {
+        let bars = Dannebrog.whiteBars(width: 37)
+        #expect(Dannebrog.height(width: 37) == 28)
+        #expect(bars.vertical == (12, 0, 4, 28) && bars.horizontal == (0, 12, 37, 4))
+    }
+}
