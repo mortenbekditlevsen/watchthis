@@ -49,7 +49,7 @@ constexpr uint32_t STEPS_SAVE_S = 60 * 60;
 constexpr const char *BOOT_APP_NAME = "Ur";
 
 // Launcher order (registry names, i.e. the app titles), 4 per page; apps not listed follow in registration order
-static const char *const APP_ORDER[] = {"Ur", "Skridt", "Stopur", "Timer", "Katte", "Musik", "Partikler", "Det lille spil", "Synk"};
+static const char *const APP_ORDER[] = {"Ur", "Skridt", "Stopur", "Tidstagning", "Vejr", "Katte", "Musik", "Partikler", "Det lille spil", "Synk"};
 
 // The watch's name is the home screen title, shown in the band between the status bar and the app launcher (see
 // dark/app_launcher_data.hpp). It's stored on the watch (watch_name.cpp); this is only the initial name of a watch
@@ -63,7 +63,6 @@ constexpr int32_t HOME_TITLE_WIDTH = 380;
 
 static Phone *phone_instance = nullptr;
 static int watch_app_id = -1;   // The boot app ("Ur"), -1 = not installed
-static int timer_app_id = -1;   // "Timer": opened when a timer is done
 
 static bool send_app_event(int id, systems::base::Context::AppEventType type)
 {
@@ -213,17 +212,21 @@ extern "C" void app_main(void)
             ESP_UTILS_LOGW("Boot app '%s' not started, staying on the launcher", BOOT_APP_NAME);
         }
 
-        /* Stopur and Timer: a timer that is done while the Timer app isn't shown opens it (it then rings) */
-        for (auto &[name, app] : inited_apps) {
-            if ((name == "Timer") && app) {
-                timer_app_id = app->getId();
-            }
-        }
-        watch_tools_init([]() {
-            if (timer_app_id >= 0) {
-                send_app_event(timer_app_id, systems::base::Context::AppEventType::START);
-            }
-        });
+        /* Stopur and Tidstagning: timers keep running when the apps close, and ring with a banner over any screen */
+        watch_tools_init();
+
+        /* Bluetooth sync while charging, without opening Synk (the phone app connects by itself): only on the watch
+         * face or an empty home screen, where nothing else needs the RAM (BLE and the MP3 decoder don't both fit), and
+         * never while music plays or is paused. Checked often, so BLE is gone right after another app opens.
+         * Starting/stopping blocks the LVGL task briefly. Unplugging while asleep: see power_manager.cpp. */
+        lv_timer_create([](lv_timer_t *) {
+            auto &manager = phone_instance->getManager();
+            auto *app = manager.getActiveApp();
+            // The home screen counts only without a paused app (that app's memory is still in use)
+            const bool quiet_screen = ((app == nullptr) && (manager.getRunningAppCount() == 0)) ||
+                                      ((app != nullptr) && (app->getId() == watch_app_id));
+            ble_sync_set_background(pmu_vbus_present() && quiet_screen && !music_player_is_active());
+        }, 500, nullptr);
 
         /* Create a timer to update the clock */
         lv_timer_create([](lv_timer_t *t) {

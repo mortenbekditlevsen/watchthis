@@ -56,11 +56,14 @@ constexpr base::Display::Data STYLESHEET_410_502_DARK_CORE_DISPLAY_DATA = {
 };
 
 constexpr base::Manager::Data STYLESHEET_410_502_DARK_CORE_MANAGER_DATA = {
+    // One app at a time: home pauses it (opening it again resumes it), opening another app closes it first. And no
+    // snapshots (for the recents screen, which is off): with no PSRAM, several paused apps' memory and a ~400 KB
+    // screen snapshot per pause led to out-of-memory crashes
     .app = {
-        .max_running_num = 3,
+        .max_running_num = 1,
     },
     .flags = {
-        .enable_app_save_snapshot = 1,
+        .enable_app_save_snapshot = 0,
     },
 };
 

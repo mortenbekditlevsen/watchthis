@@ -7,7 +7,8 @@ do and is the best place to look when something here is unclear.
 
 ## 1. Overview
 
-- BLE only runs while the **Synk** app is open on the watch. The user opens Synk, then syncs from the phone.
+- BLE runs while the **Synk** app is open on the watch, and also while the watch is **charging** and shows the watch
+  face or the home screen (and no music is playing or paused). Pairing a new phone needs Synk (it shows the code).
 - One watch trusts **one phone** (a new pairing replaces the old one). One phone can be paired with any number of
   watches; each watch has its own key.
 - Pairing is done by the app, not by BLE bonding: the watch shows a QR code with a one-time code (POP), both sides
@@ -55,7 +56,7 @@ available encrypted, via GetName):
 ```json
 {"version":"1.0.0","apiVersion":1,
  "capabilities":["SetTime","StorageInfo","List","FileUpload","FileDelete","SetName","GetName","FileRead",
-                 "WatchFaces","Birthday"],
+                 "Weather","WatchFaces","Birthday"],
  "photo":{"w":410,"h":502},
  "face":{"format":1,"w":410,"h":502,"features":["bg.color","bg.linearGradient","analogClock","steps",…]}}
 ```
@@ -201,7 +202,7 @@ Result status codes:
 
 Notes:
 
-- **kind:** 0 = photo, 1 = music, 2 = watch face, 3 = face asset (§12).
+- **kind:** 0 = photo, 1 = music, 2 = watch face, 3 = face asset (§12), 4 = weather (§13).
 - **SetTime:** the watch stores the time in its RTC and the TZ string in flash. iOS has no POSIX TZ API; derive
   the string from `TimeZone` (standard/daylight offsets and transition rules) or map common IANA zones, e.g.
   `Europe/Copenhagen` → `CET-1CEST,M3.5.0,M10.5.0/3`. Note the POSIX sign convention (`CET-1` = UTC+1).
@@ -361,4 +362,23 @@ has `status` (as Result), the `offset` it read from, the file's `total` size and
 `offset + data length == total`. Use it to pull faces back from a watch (e.g. after reinstalling the app).
 
 Faces are shown in the Ur app, while BLE runs only in Synk; changes made over BLE show the next time Ur opens.
+
+## 13. Weather
+
+With the capability `Weather`, the watch's Vejr app shows a forecast the phone uploads as a file of kind 4 with
+id `vejr` (other ids are reserved for more places later). Upload it like a photo (§8), e.g. every time the watch
+connects; uploading replaces the previous one. The content is a WatchFaceKit `WeatherReport`
+(`components/watch_faces/WatchFaceKit/Sources/WatchFaceKit/Weather.swift`): the same TLV records as face files, with
+magic `WWTR` and version 1. It's checked at commit (status 5 if it doesn't decode) and is about 150 bytes:
+
+| Tag | Field | Type |
+|---|---|---|
+| 1 | location (place name, ≤ 40 bytes) | string |
+| 2 | updated (when fetched, Unix seconds) | sint |
+| 3 | now: 1 condition (uint, below), 2 isDay (bool), 3 temperature, 4 feelsLike (sint, tenths of °C), 5 wind, 6 gusts (uint, tenths of m/s) | nested |
+| 4 | day, repeated ≤ 10, from today: 1 date (uint yyyymmdd), 2 condition, 3 high, 4 low (tenths of °C), 5 precipitation (tenths of mm), 6 precipitation probability (%), 7 max wind (tenths of m/s) | nested |
+
+Conditions: 0 clear, 1 partly cloudy, 2 cloudy, 3 fog, 4 drizzle, 5 rain, 6 showers, 7 sleet, 8 snow, 9 thunder
+(`WeatherCondition(wmo:)` maps WMO weather codes). Wind from 10.8 m/s counts as windy. The watch shows how old the
+forecast is and says so when it's more than 6 hours old. The iOS app gets forecasts from Open-Meteo.
 

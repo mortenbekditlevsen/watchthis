@@ -18,8 +18,8 @@ static const char *TAG = "FileStore";
 
 static constexpr const char *PARTITION_LABEL = "store";
 
-static const char *const KIND_DIR[FILE_STORE_KIND_MAX] = {"photos", "music", "faces", "assets"};
-static const char *const KIND_EXT[FILE_STORE_KIND_MAX] = {".jpg", ".mp3", ".wf", ".ast"};
+static const char *const KIND_DIR[FILE_STORE_KIND_MAX] = {"photos", "music", "faces", "assets", "weather"};
+static const char *const KIND_EXT[FILE_STORE_KIND_MAX] = {".jpg", ".mp3", ".wf", ".ast", ".wx"};
 static constexpr const char *NAME_EXT = ".nm";      // Sidecar with the display name
 static constexpr const char *PART_EXT = ".part";    // Upload in progress
 static constexpr size_t SPACE_MARGIN = 64 * 1024;   // Keep LittleFS some room for metadata
@@ -226,6 +226,8 @@ bool format_ok(file_store_kind_t kind, const uint8_t head[8], uint32_t size)
                ((head[0] == 0xFF) && ((head[1] & 0xE0) == 0xE0));             // MPEG frame sync
     case FILE_STORE_FACE:
         return memcmp(head, "WFCE", 4) == 0;
+    case FILE_STORE_WEATHER:
+        return memcmp(head, "WWTR", 4) == 0;
     case FILE_STORE_FACE_ASSET:
         return (memcmp(head, "\x89PNG", 4) == 0) ||                       // PNG
                ((head[0] == 0xFF) && (head[1] == 0xD8)) ||                // JPEG SOI

@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "lvgl.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -21,6 +22,11 @@ void watch_faces_show(void);
 /* Stop updating and free the faces; from the app's close(), with the LVGL lock held. The screen itself is deleted by
  * the app framework (it was created in run()), which frees what's on it. */
 void watch_faces_hide(void);
+
+/* The Vejr app's run()/close() (brookesia_app_weather), with the LVGL lock held; `screen` is the app's screen. It shows
+ * the forecast the phone uploaded (file_store kind FILE_STORE_WEATHER, id "vejr"). */
+void weather_app_show(lv_obj_t *screen);
+void weather_app_hide(void);
 
 /* Battery percentage for battery elements (-1 = unknown); polled about every 30 s while a face shows one. */
 void watch_faces_set_battery_source(int (*percent)(void));

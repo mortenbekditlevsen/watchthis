@@ -77,6 +77,7 @@ final class Carousel {
     private func tick() {
         if wf_atomic_load(&facesChanged) != 0 {
             wf_atomic_store(&facesChanged, 0)
+            ImageWorker.failedAssets.removeAll()
             finishSlide()
             let previousID = ids[index]
             let visible = FaceStore.visible()

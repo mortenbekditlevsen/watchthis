@@ -7,7 +7,7 @@
 
 namespace esp_brookesia::apps {
 
-/* The "Timer" app: a shell around the Swift UI in components/watch_tools */
+/* The "Tidstagning" app: a shell around the Swift UI in components/watch_tools */
 class Timer: public systems::phone::App {
 public:
     static Timer *requestInstance();

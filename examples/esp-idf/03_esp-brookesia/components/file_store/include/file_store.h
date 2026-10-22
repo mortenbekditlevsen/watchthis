@@ -25,6 +25,7 @@ typedef enum {
     FILE_STORE_MUSIC,       /* <root>/music/<id>.mp3 */
     FILE_STORE_FACE,        /* <root>/faces/<id>.wf: a watch face (components/watch_faces) */
     FILE_STORE_FACE_ASSET,  /* <root>/assets/<id>.ast: PNG/JPEG background or LVGL binfont used by faces */
+    FILE_STORE_WEATHER,     /* <root>/weather/<id>.wx: a forecast from the phone (WatchFaceKit WeatherReport) */
     FILE_STORE_KIND_MAX,
 } file_store_kind_t;
 

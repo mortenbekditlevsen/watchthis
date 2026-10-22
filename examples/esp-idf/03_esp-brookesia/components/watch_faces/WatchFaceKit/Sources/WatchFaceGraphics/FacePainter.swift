@@ -93,6 +93,10 @@ public struct FacePainter {
                 c.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
                 c.restoreGState()
             }
+            if i.dim > 0 {
+                c.setFillColor(CGColor(gray: 0, alpha: CGFloat(i.dimOpacity) / 255))
+                c.fill(bounds)
+            }
         case .unknown:
             break
         }

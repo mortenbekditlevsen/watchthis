@@ -11,9 +11,9 @@ Usage (open the "Synk" app on the watch first):
     tools/.venv/bin/python tools/ble_test_client.py pair 7K2M9XAB      # code shown under the QR code
     tools/.venv/bin/python tools/ble_test_client.py time [--tz CET-1CEST,M3.5.0,M10.5.0/3]
     tools/.venv/bin/python tools/ble_test_client.py info
-    tools/.venv/bin/python tools/ble_test_client.py list photo|music|face|asset
-    tools/.venv/bin/python tools/ble_test_client.py upload photo|music|face|asset FILE ID [--name NAME]
-    tools/.venv/bin/python tools/ble_test_client.py delete photo|music|face|asset ID
+    tools/.venv/bin/python tools/ble_test_client.py list photo|music|face|asset|weather
+    tools/.venv/bin/python tools/ble_test_client.py upload photo|music|face|asset|weather FILE ID [--name NAME]
+    tools/.venv/bin/python tools/ble_test_client.py delete photo|music|face|asset|weather ID
     tools/.venv/bin/python tools/ble_test_client.py read face|asset ID OUT     # download a file
     tools/.venv/bin/python tools/ble_test_client.py name ["Mit ur"]    # show / set the home screen title
     tools/.venv/bin/python tools/ble_test_client.py birthday MM-DD|none  # Danish flag on the faces that day
@@ -21,7 +21,8 @@ Usage (open the "Synk" app on the watch first):
     tools/.venv/bin/python tools/ble_test_client.py face-order ID... [--active N]   # which faces to show, in order
 
 Watch face files (.wf) can be made with WatchFaceKit's CLI: `swift run wfce builtin klassisk klassisk_kopi.wf`
-(in components/watch_faces/WatchFaceKit); assets are PNG/baseline JPEG backgrounds or LVGL binfonts.
+(in components/watch_faces/WatchFaceKit); assets are PNG/baseline JPEG backgrounds or LVGL binfonts. A sample
+forecast for the Vejr app: `swift run wfce weather-sample vejr.wx`, then `upload weather vejr.wx vejr`.
 
 The pairing (client id + long-term key) is kept in tools/.ble_test_client.json.
 """
@@ -56,7 +57,7 @@ INFO_LTK = b"watch-ltk-v1"
 CONFIRM_DEVICE = b"watch-confirm-device-v1"
 CONFIRM_CLIENT = b"watch-confirm-client-v1"
 
-KINDS = {"photo": 0, "music": 1, "face": 2, "asset": 3}
+KINDS = {"photo": 0, "music": 1, "face": 2, "asset": 3, "weather": 4}
 STATUS = {0: "ok", 1: "failed", 2: "invalid", 3: "no space", 4: "busy", 5: "check failed (size/CRC/format)",
           6: "not found"}
 NACK = {1: "not paired", 2: "bad confirm (wrong code?)", 3: "pairing window closed", 4: "rate limited"}

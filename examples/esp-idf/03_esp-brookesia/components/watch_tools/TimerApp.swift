@@ -1,13 +1,14 @@
-// Timer: pick a preset (2, 3, 5, 10 min) or one of the last four the user made, or make a new one with three
+// Tidstagning: pick a preset (2, 3, 5, 10 min) or one of the last four the user made, or make a new one with three
 // rollers (hours, minutes, seconds). The countdown keeps going when the app closes or the watch sleeps; when it's
-// done the watch wakes up (power manager, watch_tools_wake_at_us), the Timer app opens and the alarm sounds until
-// stopped (or for a minute).
+// done the watch wakes up (power manager, watch_tools_wake_at_us) and the alarm sounds until stopped (or for a
+// minute). In the app it shows its ringing view; anywhere else a banner on LVGL's top layer (above every screen)
+// says so, with a Stop button. (Switching apps from here confused brookesia: see AlarmBanner.)
 
 private let recentPath = "/store/timers.bin"
 
 nonisolated(unsafe) private var countdown = Countdown()
 nonisolated(unsafe) private var choices = TimerChoices()
-nonisolated(unsafe) private var openTimerApp: (@convention(c) () -> Void)?
+nonisolated(unsafe) private var banner: AlarmBanner?
 nonisolated(unsafe) private var ui: TimerUI?
 /// When the power manager must wake the watch (esp_timer microseconds), 0 = never; atomic (power task reads it)
 nonisolated(unsafe) private var wakeAt: Int64 = 0
@@ -23,15 +24,80 @@ private func backgroundTick() {
     case .startRinging:
         countdownChanged()
         music_player_alarm_start()
-        if ui == nil {
-            openTimerApp?()
-        }
     case .stopRinging:
         music_player_alarm_stop()
     case .none:
         break
     }
     ui?.tick()
+
+    // The banner, unless the app is on screen (it has its own ringing view)
+    var ringing = false
+    if case .ringing = countdown.state { ringing = true }
+    let appShown = ui.map { lv_screen_active() == $0.screen } ?? false
+    if ringing && !appShown {
+        if banner == nil { banner = AlarmBanner() }
+        banner?.tick()
+    } else if let shown = banner {
+        shown.remove()
+        banner = nil
+    }
+    if ringing {
+        // Ringing counts as activity: the screen mustn't time out on it (power manager idle sleep)
+        lv_display_trigger_activity(nil)
+    }
+}
+
+private func stopAlarm() {
+    countdown.cancel()
+    countdownChanged()
+    music_player_alarm_stop()
+}
+
+/// "Tiden er gået!" over whatever is shown, on lv_layer_top(). Opening the Tidstagning app instead (an app start
+/// while another app was on screen) left brookesia on an unresponsive home screen once only one app may run.
+/// Only the card takes touches; the rest of the screen still works.
+private final class AlarmBanner {
+    let card: LVObj
+    var flashOn = false
+    var lastFlash: UInt32 = 0
+
+    init() {
+        card = lv_obj_create(lv_layer_top())!
+        lv_obj_remove_style_all(card)
+        lv_obj_set_size(card, 370, 230)
+        lv_obj_align(card, LV_ALIGN_CENTER, 0, 0)
+        lv_obj_set_style_radius(card, 28, partMain)
+        lv_obj_set_style_bg_color(card, lv_color_hex(0x202020), partMain)
+        lv_obj_set_style_bg_opa(card, 245, partMain)
+        lv_obj_set_style_border_width(card, 4, partMain)
+        lv_obj_set_style_border_color(card, lv_color_hex(Palette.orange), partMain)
+        lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE)
+        lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE) // touches on the card don't reach the screen below
+
+        let title = label(card, "Tiden er gået!", size: 28)
+        lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 22)
+        let duration = label(card, TimeText.duration(seconds: countdown.duration), size: 20, color: Palette.dimText)
+        lv_obj_align(duration, LV_ALIGN_TOP_MID, 0, 62)
+        let stop = button(card, "Stop", color: Palette.red, width: 220, height: 84) { _ in
+            stopAlarm()
+            backgroundTick() // removes the banner now
+        }
+        lv_obj_align(stop.button, LV_ALIGN_BOTTOM_MID, 0, -24)
+    }
+
+    func tick() {
+        if lv_tick_elaps(lastFlash) >= 500 {
+            lastFlash = lv_tick_get()
+            flashOn.toggle()
+            lv_obj_set_style_border_color(card, lv_color_hex(flashOn ? Palette.orange : 0x5A3000), partMain)
+        }
+    }
+
+    /// Async: this can run from the card's own Stop button handler
+    func remove() {
+        lv_obj_delete_async(card)
+    }
 }
 
 private func startTimer(seconds: Int) {
@@ -50,7 +116,7 @@ private final class TimerUI {
 
     // Running view
     var arc: LVObj?
-    var remaining: LVObj?
+    var remaining: DigitDisplay?
     var pauseLabel: LVObj?
     // Picker view
     var rollers: [LVObj] = []
@@ -80,7 +146,7 @@ private final class TimerUI {
         switch wanted {
         case .running:
             let t = now()
-            if let remaining { setText(remaining, TimeText.countdown(countdown.remaining(at: t))) }
+            remaining?.setText(TimeText.countdown(countdown.remaining(at: t)))
             if let arc { lv_arc_set_value(arc, Int32(1000 - countdown.progress(at: t) * 1000)) }
         case .ringing:
             if lv_tick_elaps(lastFlash) >= 500 {
@@ -118,7 +184,7 @@ private final class TimerUI {
     // MARK: Choices
 
     private func buildChoices() {
-        let title = label(screen, "Timer", size: 28, color: Palette.dimText)
+        let title = label(screen, "Tidstagning", size: 28, color: Palette.dimText)
         lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 30)
 
         let grid = lv_obj_create(screen)!
@@ -227,11 +293,12 @@ private final class TimerUI {
         lv_obj_set_style_arc_color(arc, lv_color_hex(Palette.orange), partIndicator)
         self.arc = arc
 
-        let remaining = label(screen, "", size: 66)
-        lv_obj_align_to(remaining, arc, LV_ALIGN_CENTER, 0, -10)
+        // Centered in the ring (30 + 330 / 2 = 195 from the top), however many digits it has
+        let remaining = DigitDisplay(screen, size: 66, align: LV_ALIGN_TOP_MID, x: 0, y: 195 - 10 - 39)
+        remaining.setText(TimeText.countdown(countdown.remaining(at: now())))
         self.remaining = remaining
         let of = label(screen, "af " + TimeText.duration(seconds: countdown.duration), size: 20, color: Palette.dimText)
-        lv_obj_align_to(of, arc, LV_ALIGN_CENTER, 0, 50)
+        lv_obj_align(of, LV_ALIGN_TOP_MID, 0, 195 + 40)
 
         let cancel = button(screen, "Annuller", color: Palette.grey, width: 160, height: 84) { _ in
             countdown.cancel()
@@ -263,9 +330,7 @@ private final class TimerUI {
         let duration = label(screen, TimeText.duration(seconds: countdown.duration), size: 44)
         lv_obj_align(duration, LV_ALIGN_CENTER, 0, -50)
         let stop = button(screen, "Stop", color: Palette.red, width: 200, height: 200, round: true) { _ in
-            countdown.cancel()
-            countdownChanged()
-            music_player_alarm_stop()
+            stopAlarm()
             ui?.tick()
         }
         lv_obj_align(stop.button, LV_ALIGN_BOTTOM_MID, 0, -40)
@@ -276,8 +341,7 @@ private final class TimerUI {
 // MARK: - C API
 
 @_cdecl("watch_tools_init")
-public func watch_tools_init(_ open: (@convention(c) () -> Void)?) {
-    openTimerApp = open
+public func watch_tools_init() {
     if let bytes = readFile(recentPath, maxSize: 4 * TimerChoices.maxRecent) {
         choices = TimerChoices(decoding: bytes)
     }
@@ -301,8 +365,6 @@ public func timer_app_hide() {
     ui = nil
     // Leaving the alarm (e.g. with the power key) dismisses it
     if case .ringing = countdown.state {
-        countdown.cancel()
-        countdownChanged()
-        music_player_alarm_stop()
+        stopAlarm()
     }
 }

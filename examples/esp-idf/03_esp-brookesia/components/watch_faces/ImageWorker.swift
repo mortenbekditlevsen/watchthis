@@ -34,6 +34,13 @@ enum ImageWorker {
         }
     }
 
+    static func hasRoomToConvert() -> Bool {
+        heap_caps_get_largest_free_block(UInt32(MALLOC_CAP_INTERNAL)) >= 48 * 1024
+    }
+
+    /// LVGL task only; cleared when faces or assets change (Carousel), so a replaced file gets another try
+    nonisolated(unsafe) static var failedAssets: [String] = []
+
     static func removeCache(_ assetID: String) {
         _ = cachePath(assetID).withCString { unlink($0) }
     }
@@ -53,15 +60,19 @@ enum ImageWorker {
     static func request(_ assetID: String, matte: FaceColor) {
         let state = wf_atomic_load(&workerState)
         if state == stateDone || state == stateFailed {
-            let failed = state == stateFailed
+            if state == stateFailed { failedAssets.append(workerAsset) }
             wf_atomic_store(&workerState, stateIdle)
-            if failed && workerAsset.utf8.elementsEqual(assetID.utf8) { return } // don't retry a bad file forever
         } else if state != stateIdle {
             return
         }
+        // Don't retry a file that can't be converted (until something is uploaded: the carousel clears the list)
+        guard !failedAssets.contains(where: { $0.utf8.elementsEqual(assetID.utf8) }) else { return }
         guard fileExists(storePath(FILE_STORE_FACE_ASSET, assetID) ?? ""), !fileExists(cachePath(assetID)) else {
             return
         }
+        // The conversion needs ~45 KB (PNG: inflate state + 32 KB window). With BLE on (Synk, or charging) there may
+        // not be that much: wait, the face asks again on its next tick
+        guard hasRoomToConvert() else { return }
         workerAsset = assetID
         workerMatte = matte
         wf_atomic_store(&workerState, stateBusy)
@@ -235,7 +246,9 @@ enum ImageWorker {
 
 private func imageWorkerMain() {
     let ok = ImageWorker.convert(workerAsset, matte: workerMatte)
-    wf_atomic_store(&workerState, ok ? stateDone : stateFailed)
+    // Out of memory (something else took it meanwhile) isn't the file's fault: try again later
+    let failure = ImageWorker.hasRoomToConvert() ? stateFailed : stateIdle
+    wf_atomic_store(&workerState, ok ? stateDone : failure)
     vTaskDelete(nil)
 }
 

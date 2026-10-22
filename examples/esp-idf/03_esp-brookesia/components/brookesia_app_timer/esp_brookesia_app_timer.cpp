@@ -11,7 +11,7 @@
 #include "watch_tools.h"
 #include "esp_brookesia_app_timer.hpp"
 
-#define APP_NAME "Timer"
+#define APP_NAME "Tidstagning"
 
 using namespace esp_brookesia::systems;
 

@@ -20,7 +20,7 @@ private let apiVersion = 1
 private let photoWidth = 410    // The display; photos are shown 1:1 (baseline JPEG)
 private let photoHeight = 502
 private let capabilities = ["SetTime", "StorageInfo", "List", "FileUpload", "FileDelete", "SetName", "GetName",
-                            "FileRead"]
+                            "FileRead", "Weather"]
 private let faceFormatVersion = 1   // WatchFaceKit's FaceFile.version
 
 /// Built on first read (after the face handlers are installed at boot)
@@ -135,6 +135,7 @@ private func fileKind(_ byte: UInt8) -> file_store_kind_t? {
     case 1: return FILE_STORE_MUSIC
     case 2: return FILE_STORE_FACE
     case 3: return FILE_STORE_FACE_ASSET
+    case 4: return FILE_STORE_WEATHER
     default: return nil
     }
 }

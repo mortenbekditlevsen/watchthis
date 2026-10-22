@@ -60,6 +60,40 @@ case "render":
     }
     CGImageDestinationAddImage(destination, image, nil)
     guard CGImageDestinationFinalize(destination) else { fail("could not write \(args[2])") }
+case "weather-icons":
+    // Every condition: day, night, and day + windy, on black
+    guard args.count == 2 else { fail("usage: wfce weather-icons <out.png>") }
+    let cell = 120, conditions = WeatherCondition.allCases
+    let c = CGContext(data: nil, width: cell * 3, height: cell * conditions.count, bitsPerComponent: 8, bytesPerRow: 0,
+                      space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue)!
+    c.setFillColor(CGColor(gray: 0, alpha: 1))
+    c.fill(CGRect(x: 0, y: 0, width: cell * 3, height: cell * conditions.count))
+    c.translateBy(x: 0, y: CGFloat(cell * conditions.count))
+    c.scaleBy(x: 1, y: -1)
+    for (row, condition) in conditions.enumerated() {
+        for (column, (isDay, windy)) in [(true, false), (false, false), (true, true)].enumerated() {
+            WeatherIconPainter.draw(WeatherIcon.shapes(condition, isDay: isDay, windy: windy),
+                                    in: CGRect(x: column * cell + 10, y: row * cell + 10, width: 100, height: 100), context: c)
+        }
+    }
+    let destination = CGImageDestinationCreateWithURL(URL(fileURLWithPath: args[1]) as CFURL, UTType.png.identifier as CFString, 1, nil)!
+    CGImageDestinationAddImage(destination, c.makeImage()!, nil)
+    guard CGImageDestinationFinalize(destination) else { fail("could not write \(args[1])") }
+case "weather-sample":
+    // A forecast for the Vejr app with every condition, from today
+    guard args.count == 2 else { fail("usage: wfce weather-sample <out.wx>") }
+    let today = WallTime.now()
+    let calendar = Calendar.current
+    let days = WeatherCondition.allCases.prefix(WeatherReport.maxDays).enumerated().map { i, condition in
+        let date = calendar.date(byAdding: .day, value: i, to: Date())!
+        let c = calendar.dateComponents([.year, .month, .day], from: date)
+        return WeatherDay(year: c.year!, month: c.month!, day: c.day!, condition: condition, high: 120 - i * 15,
+                          low: 40 - i * 15, precipitation: i * 12, precipitationProbability: i * 10, windMax: 60 + i * 12)
+    }
+    let report = WeatherReport(location: "Prøveby", updated: Int64(Date().timeIntervalSince1970),
+                               now: WeatherNow(condition: .partlyCloudy, isDay: today.hour >= 7 && today.hour < 18,
+                                               temperature: 87, feelsLike: 51, wind: 115, gusts: 180), days: days)
+    try Data(report.encoded()).write(to: URL(fileURLWithPath: args[1]))
 case "font":
     guard args.count == 5, let size = Int(args[2]) else {
         fail("usage: wfce font <PostScript name> <size> <characters> <out.fnt>")

@@ -163,6 +163,11 @@ static void sleep_until_power_key(void)
         battery_log_poll(true);
         step_counter_poll();    // The IMU's FIFO holds only ~4 s of samples
         const bool on_battery = !pmu_vbus_present();
+        if (on_battery && ble_sync_is_active()) {
+            // Unplugged while asleep: BLE only runs in the background while charging (main.cpp). LVGL is stopped,
+            // so this is the only task calling it now. (Synk's BLE keeps running: ble_sync_stop() isn't called.)
+            ble_sync_set_background(false);
+        }
         if (on_battery && !ble_sync_is_active() && !music_player_is_active() &&
                 (esp_timer_get_time() - asleep_since >= POWER_OFF_AFTER_SLEEP_US) && is_night()) {
             // Asleep for hours at night: switch the board off; the RTC chip keeps the time, the power key boots it
@@ -205,7 +210,8 @@ static void sleep_until_power_key(void)
 static void power_task(void *arg)
 {
     while (true) {
-        // On USB power the watch never falls asleep by itself (keeps the USB console and flashing usable)
+        // On USB power too, the screen goes off after a while idle; the sleep loop then keeps the CPU awake (no light
+        // sleep), so the USB console and flashing keep working
         if (pmu_pkey_short_pressed()) {
             bool handled = false;
             if ((key_callback != nullptr) && bsp_display_lock(0)) {
@@ -216,7 +222,7 @@ static void power_task(void *arg)
             if (!handled) {
                 sleep_until_power_key();
             }
-        } else if (!pmu_vbus_present() && home_screen_idle()) {
+        } else if (home_screen_idle()) {
             sleep_until_power_key();
         }
         battery_log_poll(false);

@@ -22,10 +22,12 @@ target_sources(${COMPONENT_LIB}
     ${KIT}/Builtins.swift
     ${KIT}/PNG.swift
     ${KIT}/Fireworks.swift
+    ${KIT}/Weather.swift
     LV.swift
     FaceRenderer.swift
     ImageWorker.swift
     FaceStore.swift
     Carousel.swift
     Birthday.swift
+    WeatherApp.swift
 )

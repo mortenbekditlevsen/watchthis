@@ -108,6 +108,15 @@ enum FaceStore {
 nonisolated(unsafe) var facesChanged: Int32 = 0
 
 private func checkUpload(_ kind: file_store_kind_t, _ path: UnsafePointer<CChar>?) -> Bool {
+    if kind == FILE_STORE_WEATHER, let path {
+        guard let bytes = readFile(String(cString: path), maxSize: 4096) else { return false }
+        do {
+            _ = try WeatherReport(decoding: bytes)
+            return true
+        } catch {
+            return false
+        }
+    }
     guard kind == FILE_STORE_FACE, let path else { return true }
     guard let bytes = readFile(String(cString: path), maxSize: FaceStore.maxFaceFileSize) else { return false }
     do {

@@ -100,7 +100,7 @@ These rules are what keep old and new versions compatible:
 | 2 | linearGradient | 1 stop (GradientStop, repeated, ≤ 8), 2 angle (uint degrees, CSS convention: 180 = top → bottom; default 180) |
 | 3 | radialGradient | 1 stop (repeated), 2 centerX (sint), 3 centerY (sint), 4 radius (uint) |
 | 4 | pattern | 1 kind (uint: 0 stripes, 1 diagonalStripes, 2 dots, 3 checker, 4 grid), 2 foreground (color), 3 background (color), 4 spacing (uint 4–64, default 16), 5 size (uint 1–64, default 2) |
-| 5 | image | 1 asset id (string: a 410 × 502 PNG or baseline JPEG face asset), 2 fallback (color, shown until the image is ready) |
+| 5 | image | 1 asset id (string: a 410 × 502 PNG or baseline JPEG face asset), 2 fallback (color, shown until the image is ready), 3 dim (uint 0–100 %: a black layer over the image; default 0) |
 
 **Image backgrounds:** the watch converts the image once, on first use, into a raw RGB565 file in `/store/cache`.
 This takes about a second, and the fallback colour shows meanwhile.

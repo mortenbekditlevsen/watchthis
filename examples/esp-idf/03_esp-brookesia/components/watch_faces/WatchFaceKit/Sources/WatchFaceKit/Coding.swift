@@ -180,6 +180,7 @@ extension Background {
             w.nested(5) { w in
                 w.string(1, i.assetID)
                 w.color(2, i.fallback)
+                if i.dim > 0 { w.uint(3, i.dim) }
             }
         case .unknown(let tag, let payload):
             w.raw(tag, payload)
@@ -235,6 +236,7 @@ extension Background {
                 switch t {
                 case 1: i.assetID = try x.string()
                 case 2: i.fallback = try x.color()
+                case 3: i.dim = min(100, try x.uint())
                 default: break
                 }
             }

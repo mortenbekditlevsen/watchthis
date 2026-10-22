@@ -18,6 +18,7 @@ import Testing
                                            centerY: 600, radius: 10)),
             .pattern(Pattern(kind: .checker, foreground: .white, background: .black, spacing: 20, size: 7)),
             .image(ImageBackground(assetID: "bg_1", fallback: FaceColor(rgb: 0x112233))),
+            .image(ImageBackground(assetID: "bg_2", fallback: .black, dim: 40)),
             .unknown(tag: 99, payload: [1, 2, 3]),
         ]
         for background in backgrounds {
@@ -349,5 +350,61 @@ import Testing
         let bars = Dannebrog.whiteBars(width: 37)
         #expect(Dannebrog.height(width: 37) == 28)
         #expect(bars.vertical == (12, 0, 4, 28) && bars.horizontal == (0, 12, 37, 4))
+    }
+}
+
+@Suite struct WeatherTests {
+    let report = WeatherReport(
+        location: "Aarhus", updated: 1_792_650_000,
+        now: WeatherNow(condition: .showers, isDay: false, temperature: -4, feelsLike: -38, wind: 112, gusts: 190),
+        days: [
+            WeatherDay(year: 2026, month: 10, day: 31, condition: .rain, high: 121, low: 64, precipitation: 35,
+                       precipitationProbability: 80, windMax: 90),
+            WeatherDay(year: 2026, month: 11, day: 1, condition: .snow, high: 15, low: -22),
+            WeatherDay(year: 2026, month: 11, day: 2, condition: .clear, high: 80, low: 10),
+        ])
+
+    @Test func roundTrip() throws {
+        #expect(try WeatherReport(decoding: report.encoded()) == report)
+        #expect(report.encoded().count < 200)
+    }
+
+    @Test func wmoCodes() {
+        #expect(WeatherCondition(wmo: 0) == .clear && WeatherCondition(wmo: 3) == .cloudy)
+        #expect(WeatherCondition(wmo: 63) == .rain && WeatherCondition(wmo: 81) == .showers)
+        #expect(WeatherCondition(wmo: 75) == .snow && WeatherCondition(wmo: 95) == .thunder)
+        #expect(WeatherCondition(wmo: 1234) == .cloudy)
+    }
+
+    @Test func texts() {
+        #expect(WeatherText.temperature(-4) == "0°" && WeatherText.temperature(-5) == "-1°")
+        #expect(WeatherText.temperature(125) == "13°" && WeatherText.temperature(-38) == "-4°")
+        #expect(WeatherText.description(report.now) == "Byger, blæsende")
+        let t = WallTime(year: 2026, month: 10, day: 31, weekday: 6, hour: 8, minute: 0, second: 0)
+        #expect(report.days.map { WeatherText.dayName($0, today: t) } == ["I dag", "I morgen", "Man 2."])
+        #expect(report.days(from: WallTime(year: 2026, month: 11, day: 1, weekday: 0, hour: 0, minute: 0, second: 0)).count == 2)
+        #expect(report.days[0].weekday == 6) // 31 Oct 2026 is a Saturday
+    }
+
+    @Test func everyConditionHasAnIcon() {
+        for condition in WeatherCondition.allCases {
+            #expect(!WeatherIcon.shapes(condition, isDay: true, windy: false).isEmpty)
+        }
+    }
+}
+
+@Suite struct DimTests {
+    @Test func dimOpacity() {
+        #expect(ImageBackground(assetID: "a", dim: 0).dimOpacity == 0)
+        #expect(ImageBackground(assetID: "a", dim: 50).dimOpacity == 127)
+        #expect(ImageBackground(assetID: "a", dim: 100).dimOpacity == 255)
+    }
+
+    @Test func undimmedImagesEncodeAsBefore() {
+        // No dim field when it's 0: files read by older firmware stay the same
+        let face = WatchFace(id: "a", name: "", background: .image(ImageBackground(assetID: "x")))
+        var dimmed = face
+        dimmed.background = .image(ImageBackground(assetID: "x", dim: 30))
+        #expect(dimmed.encoded().count == face.encoded().count + 3)
     }
 }

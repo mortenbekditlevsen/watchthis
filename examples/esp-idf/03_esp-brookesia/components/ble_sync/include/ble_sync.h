@@ -70,8 +70,14 @@ void ble_sync_set_face_handlers(const ble_sync_face_handlers_t *handlers);
  * yet. Returns false if BLE couldn't be started (e.g. out of memory). */
 bool ble_sync_start(ble_sync_status_cb_t status_cb);
 
-/* Disconnect, stop advertising and shut NimBLE down completely (frees its memory). Blocks until done. */
+/* Disconnect, stop advertising and shut NimBLE down completely (frees its memory). Blocks until done. If BLE is
+ * also wanted in the background (ble_sync_set_background), it keeps running without the status callback. */
 void ble_sync_stop(void);
+
+/* BLE without the Synk app (e.g. while charging): starts it if the watch is paired with a phone (no pairing window:
+ * there's no screen for the code), and stops it again when off unless Synk has it (ble_sync_start). Blocks while
+ * starting/stopping. Call from one task (the LVGL task), or while that task can't run. */
+void ble_sync_set_background(bool on);
 
 bool ble_sync_is_active(void);
 

@@ -102,3 +102,62 @@ func writeFile(_ path: String, _ bytes: [UInt8]) {
     _ = fwrite(bytes, 1, bytes.count, f)
     fclose(f)
 }
+
+/// Text in the big font with every digit in a cell as wide as the widest digit ("tabular figures"), so a running time
+/// doesn't jitter as digits change. The row stays centered on its alignment point whatever its length.
+final class DigitDisplay {
+    let row: LVObj
+    private var cells: [LVObj] = []
+    private var shown: [UInt8] = []
+    private let font: UnsafePointer<lv_font_t>
+    private let digitWidth: Int32
+    private let color: UInt32
+
+    /// Aligns the row's center to `align` + (x, y) of `parent`
+    init(_ parent: LVObj, size: Int32, color: UInt32 = 0xFFFFFF, align: lv_align_t, x: Int32, y: Int32) {
+        font = wt_font(size)
+        self.color = color
+        var widest: UInt32 = 0
+        for d in UInt32(0x30)...UInt32(0x39) {
+            widest = max(widest, UInt32(lv_font_get_glyph_width(font, d, 0)))
+        }
+        digitWidth = Int32(widest)
+        row = lv_obj_create(parent)!
+        lv_obj_remove_style_all(row)
+        lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE)
+        lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE)
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW)
+        // The big font is slanted: the last character sticks out past its cell, and the row would clip it. Room on
+        // both sides keeps the row centered
+        lv_obj_set_style_pad_left(row, 16, partMain)
+        lv_obj_set_style_pad_right(row, 16, partMain)
+        lv_obj_set_size(row, wt_size_content(), wt_size_content())
+        // lv_obj_align is kept: LVGL re-aligns the row whenever its width changes
+        lv_obj_align(row, align, x, y)
+    }
+
+    func setText(_ text: String) {
+        let bytes = Array(text.utf8)
+        guard bytes != shown else { return }
+        // One cell per character; rebuilt only when the length changes
+        if bytes.count != shown.count {
+            lv_obj_clean(row)
+            cells = []
+            for _ in bytes {
+                let cell = lv_label_create(row)!
+                lv_obj_set_style_text_font(cell, font, partMain)
+                lv_obj_set_style_text_color(cell, lv_color_hex(color), partMain)
+                lv_obj_set_style_text_align(cell, LV_TEXT_ALIGN_CENTER, partMain)
+                cells.append(cell)
+            }
+            shown = []
+        }
+        for (i, byte) in bytes.enumerated() where i >= shown.count || shown[i] != byte {
+            let isDigit = byte >= 0x30 && byte <= 0x39
+            lv_obj_set_width(cells[i], isDigit ? digitWidth
+                                                : Int32(lv_font_get_glyph_width(font, UInt32(byte), 0)))
+            String(decoding: [byte], as: UTF8.self).withCString { lv_label_set_text(cells[i], $0) }
+        }
+        shown = bytes
+    }
+}

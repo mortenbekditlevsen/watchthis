@@ -102,16 +102,37 @@ final class BirthdayDecoration {
 
     // MARK: - Fireworks
 
+    /// The fireworks get a page of their own: black, with the greeting in the middle. Being opaque, the face
+    /// underneath isn't redrawn on every frame.
     private func startFireworks() {
-        fireworks = Fireworks(seed: lv_tick_get())
+        fireworks = Fireworks(seed: lv_tick_get(), launchDuration: 6)
         lastTick = lv_tick_get()
+        lastSparkArea = nil
         if overlay == nil {
             let overlay = lvPlainObject(screen)
             lv_obj_set_size(overlay, Int32(WatchScreen.width), Int32(WatchScreen.height))
+            lv_obj_set_style_bg_color(overlay, lv_color_black(), partMain)
+            lv_obj_set_style_bg_opa(overlay, 255, partMain)
+            // Sparks in DRAW_MAIN (after the background, before the children): the greeting stays on top
             lv_obj_add_event_cb(overlay, { e in
                 guard let ud = lv_event_get_user_data(e) else { return }
                 Unmanaged<BirthdayDecoration>.fromOpaque(ud).takeUnretainedValue().draw(e)
-            }, LV_EVENT_DRAW_POST, Unmanaged.passUnretained(self).toOpaque())
+            }, LV_EVENT_DRAW_MAIN, Unmanaged.passUnretained(self).toOpaque())
+            // A tap ends the show early
+            lv_obj_add_flag(overlay, LV_OBJ_FLAG_CLICKABLE)
+            lv_obj_add_event_cb(overlay, { e in
+                guard let ud = lv_event_get_user_data(e) else { return }
+                Unmanaged<BirthdayDecoration>.fromOpaque(ud).takeUnretainedValue().stopFireworks()
+            }, LV_EVENT_CLICKED, Unmanaged.passUnretained(self).toOpaque())
+
+            let greeting = lv_label_create(overlay)!
+            lv_obj_set_width(greeting, Int32(WatchScreen.width) - 40)
+            lv_obj_set_style_text_font(greeting, wf_builtin_font(28), partMain)
+            lv_obj_set_style_text_color(greeting, lv_color_white(), partMain)
+            lv_obj_set_style_text_align(greeting, LV_TEXT_ALIGN_CENTER, partMain)
+            lv_obj_set_style_text_line_space(greeting, 6, partMain)
+            lvSetText(greeting, "Tillykke med\nfødselsdagen!")
+            lv_obj_center(greeting)
             self.overlay = overlay
         }
         if timer == nil {
@@ -130,16 +151,52 @@ final class BirthdayDecoration {
         overlay = nil
     }
 
+    /// Where the sparks were drawn last frame (it must be redrawn to erase them)
+    private var lastSparkArea: lv_area_t?
+
     private func tick() {
         let now = lv_tick_get()
         // Clamp: after a slow frame (or light sleep), don't jump
         fireworks.step(min(0.1, Float(now &- lastTick) / 1000))
         lastTick = now
-        if fireworks.isFinished {
+        // Watching counts as activity: the idle sleep (10 s, power manager) starts counting when the show ends
+        lv_display_trigger_activity(nil)
+        guard !fireworks.isFinished else {
             stopFireworks()
-        } else if let overlay {
-            lv_obj_invalidate(overlay)
+            return
         }
+        guard let overlay else { return }
+        // Redraw only the box around the sparks (now and last frame), not the whole screen
+        var area = sparkArea()
+        if let last = lastSparkArea {
+            if let current = area {
+                area = lv_area_t(x1: min(current.x1, last.x1), y1: min(current.y1, last.y1),
+                                 x2: max(current.x2, last.x2), y2: max(current.y2, last.y2))
+            } else {
+                area = last
+            }
+        }
+        lastSparkArea = sparkArea()
+        if var area {
+            lv_obj_invalidate_area(overlay, &area)
+        }
+    }
+
+    private func sparkArea() -> lv_area_t? {
+        guard let first = fireworks.sparks.first else { return nil }
+        var area = lv_area_t(x1: Int32(first.x), y1: Int32(first.y), x2: Int32(first.x), y2: Int32(first.y))
+        for spark in fireworks.sparks {
+            area.x1 = min(area.x1, Int32(spark.x))
+            area.y1 = min(area.y1, Int32(spark.y))
+            area.x2 = max(area.x2, Int32(spark.x))
+            area.y2 = max(area.y2, Int32(spark.y))
+        }
+        let margin: Int32 = 4 // the dots' size
+        area.x1 = max(0, area.x1 - margin)
+        area.y1 = max(0, area.y1 - margin)
+        area.x2 = min(Int32(WatchScreen.width) - 1, area.x2 + margin)
+        area.y2 = min(Int32(WatchScreen.height) - 1, area.y2 + margin)
+        return area.x1 <= area.x2 && area.y1 <= area.y2 ? area : nil
     }
 
     private func draw(_ e: OpaquePointer?) {

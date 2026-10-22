@@ -67,3 +67,17 @@ static inline bool wf_task_create(void (*fn)(void *), const char *name, uint32_t
 {
     return xTaskCreate(fn, name, stack, NULL, priority, NULL) == pdPASS;
 }
+
+// lv_draw_triangle_dsc_t's points are a C array (a tuple in Swift)
+static inline void wf_draw_triangle(lv_layer_t *layer, int32_t x1, int32_t y1, int32_t x2, int32_t y2, int32_t x3,
+                                    int32_t y3, lv_color_t color, lv_opa_t opa)
+{
+    lv_draw_triangle_dsc_t dsc;
+    lv_draw_triangle_dsc_init(&dsc);
+    dsc.p[0].x = x1; dsc.p[0].y = y1;
+    dsc.p[1].x = x2; dsc.p[1].y = y2;
+    dsc.p[2].x = x3; dsc.p[2].y = y3;
+    dsc.color = color;
+    dsc.opa = opa;
+    lv_draw_triangle(layer, &dsc);
+}

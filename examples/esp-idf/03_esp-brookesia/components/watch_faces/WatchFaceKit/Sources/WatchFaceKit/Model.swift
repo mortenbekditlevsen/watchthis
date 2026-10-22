@@ -176,11 +176,17 @@ public struct ImageBackground: Equatable, Sendable {
     public var assetID: String
     /// Shown while the watch prepares the image, or if it is missing
     public var fallback: FaceColor
+    /// Darkens the image (a black layer over it), 0 (none) ... 100 % (black), to make the time easier to read
+    public var dim: Int
 
-    public init(assetID: String, fallback: FaceColor = .black) {
+    public init(assetID: String, fallback: FaceColor = .black, dim: Int = 0) {
         self.assetID = assetID
         self.fallback = fallback
+        self.dim = dim
     }
+
+    /// The black layer's opacity, 0...255
+    public var dimOpacity: UInt8 { UInt8(max(0, min(100, dim)) * 255 / 100) }
 }
 
 // MARK: - Elements

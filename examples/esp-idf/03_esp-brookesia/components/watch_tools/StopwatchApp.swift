@@ -6,7 +6,7 @@ nonisolated(unsafe) private var ui: StopwatchUI?
 
 private final class StopwatchUI {
     let screen: LVObj
-    let time: LVObj
+    let time: DigitDisplay
     let startButton: LVObj
     let startLabel: LVObj
     let resetButton: LVObj
@@ -19,8 +19,7 @@ private final class StopwatchUI {
         let title = label(screen, "Stopur", size: 28, color: Palette.dimText)
         lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 40)
 
-        time = label(screen, "", size: 66)
-        lv_obj_align(time, LV_ALIGN_CENTER, 0, -50)
+        time = DigitDisplay(screen, size: 66, align: LV_ALIGN_CENTER, x: 0, y: -50)
 
         let diameter: Int32 = 150
         let reset = button(screen, "Nulstil", color: Palette.grey, width: diameter, height: diameter, round: true) { _ in
@@ -49,12 +48,12 @@ private final class StopwatchUI {
 
     func tick() {
         if stopwatch.isRunning {
-            setText(time, TimeText.stopwatch(stopwatch.elapsed(at: now())))
+            time.setText(TimeText.stopwatch(stopwatch.elapsed(at: now())))
         }
     }
 
     func refresh() {
-        setText(time, TimeText.stopwatch(stopwatch.elapsed(at: now())))
+        time.setText(TimeText.stopwatch(stopwatch.elapsed(at: now())))
         setText(startLabel, stopwatch.isRunning ? "Stop" : "Start")
         setButtonColor(startButton, stopwatch.isRunning ? Palette.red : Palette.green)
         setEnabled(resetButton, stopwatch.canReset)

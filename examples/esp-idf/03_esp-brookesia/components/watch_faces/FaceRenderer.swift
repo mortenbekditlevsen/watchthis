@@ -16,7 +16,7 @@ final class RenderedFace {
     private var hands: [(image: LVObj, hand: Hand)] = []
     private var steps: [(label: LVObj, arc: LVObj?, element: Steps)] = []
     private var batteries: [(label: LVObj?, bar: LVObj?)] = []
-    private var pendingImage: (image: LVObj, assetID: String)?
+    private var pendingImage: (image: LVObj, assetID: String, matte: FaceColor)?
     private var lastSteps = -1
     private var lastBattery = -2
     private var lastBatteryCheck: UInt32 = 0
@@ -146,8 +146,15 @@ final class RenderedFace {
             let image = lv_image_create(root)!
             lv_obj_set_pos(image, 0, 0)
             if !ImageWorker.showIfReady(i.assetID, on: image) {
-                pendingImage = (image, i.assetID)
+                pendingImage = (image, i.assetID, i.fallback)
                 ImageWorker.request(i.assetID, matte: i.fallback)
+            }
+            if i.dim > 0 {
+                // A black layer over the image (and the fallback colour), under the elements
+                let dim = lvPlainObject(root)
+                lv_obj_set_size(dim, Int32(WatchScreen.width), Int32(WatchScreen.height))
+                lv_obj_set_style_bg_color(dim, lv_color_black(), partMain)
+                lv_obj_set_style_bg_opa(dim, i.dimOpacity, partMain)
             }
         case .unknown:
             break
@@ -316,8 +323,12 @@ final class RenderedFace {
                 }
             }
         }
-        if let pending = pendingImage, ImageWorker.showIfReady(pending.assetID, on: pending.image) {
-            pendingImage = nil
+        if let pending = pendingImage {
+            if ImageWorker.showIfReady(pending.assetID, on: pending.image) {
+                pendingImage = nil
+            } else {
+                ImageWorker.request(pending.assetID, matte: pending.matte) // no-op while converting
+            }
         }
     }
 }

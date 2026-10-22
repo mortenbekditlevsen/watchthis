@@ -594,7 +594,8 @@ bool Manager::processNavigationEvent(base::Manager::NavigateType type)
         if (active_app == nullptr) {
             goto end;
         }
-        // Process app pause
+        // Process app pause (it resumes where it was if opened again; opening another app closes it, since only one
+        // app may run: main/dark/core_data.hpp)
         ESP_UTILS_CHECK_FALSE_GOTO(ret = processAppPause(active_app), end, "base::App(%d) pause failed", active_app->getId());
         ESP_UTILS_CHECK_FALSE_RETURN(processDisplayScreenChange(Screen::MAIN, nullptr), false,
                                      "Process screen change failed");

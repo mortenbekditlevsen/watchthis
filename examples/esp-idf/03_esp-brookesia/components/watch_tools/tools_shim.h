@@ -21,3 +21,4 @@ static inline const lv_font_t *wt_font(int size)
 /* For a value read by the power task and written by the LVGL task (the storage is a Swift global) */
 static inline int64_t wt_atomic_load64(int64_t *p) { return __atomic_load_n(p, __ATOMIC_SEQ_CST); }
 static inline void wt_atomic_store64(int64_t *p, int64_t v) { __atomic_store_n(p, v, __ATOMIC_SEQ_CST); }
+static inline int32_t wt_size_content(void) { return LV_SIZE_CONTENT; }

@@ -256,6 +256,13 @@ static void sound_alarm(void)
 
     constexpr int CHUNK = ALARM_RATE / 100;     // 10 ms
     static int16_t samples[CHUNK];
+    // One period of the tone (2 kHz at 16 kHz: 8 samples), so there's no sinf() per sample (no FPU on the C6)
+    static_assert(ALARM_RATE % ALARM_TONE_HZ == 0, "the tone must be a whole number of samples per period");
+    constexpr int PERIOD = ALARM_RATE / ALARM_TONE_HZ;
+    float wave[PERIOD];
+    for (int i = 0; i < PERIOD; i++) {
+        wave[i] = sinf(2 * (float)M_PI * i / PERIOD);
+    }
     constexpr int PERIOD_MS = ALARM_BEEPS * (ALARM_BEEP_MS + ALARM_GAP_MS) + ALARM_PAUSE_MS;
     const int64_t started = esp_timer_get_time();
     int64_t n = 0;  // Samples written
@@ -270,7 +277,7 @@ static void sound_alarm(void)
                 const float edge = fminf(in_slot, ALARM_BEEP_MS - in_slot) / 5.0f;
                 amplitude = 12000 * fminf(1.0f, edge);
             }
-            samples[i] = (int16_t)(amplitude * sinf(2 * (float)M_PI * ALARM_TONE_HZ * (float)n / ALARM_RATE));
+            samples[i] = (int16_t)(amplitude * wave[n % PERIOD]);
         }
         if (esp_codec_dev_write(speaker, samples, sizeof(samples)) != ESP_CODEC_DEV_OK) {
             break;

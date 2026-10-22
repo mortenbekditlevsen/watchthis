@@ -6,6 +6,10 @@
 
 private var active = false
 private var synced = false
+/// BLE is wanted by the Synk app (ble_sync_start/stop) and/or in the background (ble_sync_set_background, e.g.
+/// while charging); it runs while either wants it
+private var foreground = false
+private var background = false
 private var statusCallback: ble_sync_status_cb_t? = nil
 private(set) var setTimeHandler: ble_sync_set_time_cb_t? = nil
 private(set) var setNameHandler: ble_sync_set_name_cb_t? = nil
@@ -202,8 +206,37 @@ public func ble_sync_set_face_handlers(_ handlers: UnsafePointer<ble_sync_face_h
 
 @_cdecl("ble_sync_start")
 public func ble_sync_start(_ callback: ble_sync_status_cb_t?) -> Bool {
-    guard !active else { return true }
+    foreground = true
     statusCallback = callback
+    if active {
+        // Already running in the background: now with a UI, so a pairing window can be shown
+        if !pairing_has_trust() && qrPayload == nil {
+            openPairingWindow()
+        }
+        publishCurrentState()
+        return true
+    }
+    if !startStack(openPairingWindowIfUnpaired: true) {
+        foreground = false
+        return false
+    }
+    return true
+}
+
+@_cdecl("ble_sync_set_background")
+public func ble_sync_set_background(_ on: Bool) {
+    background = on
+    if on && !active && pairing_has_trust() {
+        // Only for a paired watch: without the Synk screen there is nowhere to show a pairing code
+        print("BLE: starting in the background")
+        _ = startStack(openPairingWindowIfUnpaired: false)
+    } else if !on && active && !foreground {
+        print("BLE: stopping (background)")
+        stopStack()
+    }
+}
+
+private func startStack(openPairingWindowIfUnpaired: Bool) -> Bool {
     publish(BLE_SYNC_STATE_STARTING)
 
     guard nimble_port_init() == ESP_OK else {
@@ -223,7 +256,7 @@ public func ble_sync_start(_ callback: ble_sync_status_cb_t?) -> Bool {
         return false
     }
 
-    if !pairing_has_trust() {
+    if !pairing_has_trust() && openPairingWindowIfUnpaired {
         openPairingWindow()
     }
     updateProvState()
@@ -237,6 +270,22 @@ public func ble_sync_start(_ callback: ble_sync_status_cb_t?) -> Bool {
 
 @_cdecl("ble_sync_stop")
 public func ble_sync_stop() {
+    foreground = false
+    statusCallback = nil
+    guard active else { return }
+    if background && pairing_has_trust() {
+        // Keeps running in the background, without the pairing window (it was shown in Synk)
+        if qrPayload != nil {
+            pairing_close_window()
+            qrPayload = nil
+            updateProvState()
+        }
+        return
+    }
+    stopStack()
+}
+
+private func stopStack() {
     guard active else { return }
 
     _ = ble_gap_adv_stop()
