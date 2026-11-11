@@ -114,8 +114,10 @@ enum ImageWorker {
 
     /// Point `image` at the prepared file if it exists
     static func showIfReady(_ key: String, on image: LVObj) -> Bool {
-        if wf_atomic_load(&workerState) != stateIdle, let job = workerJob, job.key.utf8.elementsEqual(key.utf8) {
-            return false // still preparing (or failed, see request)
+        // Still being prepared. (Only while busy: once done, the state stays "done" until the next request, and
+        // answering "not ready" then had a face being baked into the slot take the placeholder color for good.)
+        if wf_atomic_load(&workerState) == stateBusy, let job = workerJob, job.key.utf8.elementsEqual(key.utf8) {
+            return false
         }
         let path = cachePath(key)
         guard fileExists(path) else { return false }

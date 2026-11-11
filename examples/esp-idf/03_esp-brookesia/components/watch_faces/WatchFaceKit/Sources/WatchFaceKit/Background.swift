@@ -150,9 +150,13 @@ public struct GradientRaster: Sendable {
 /// kept in the memory-mapped slot) and a quarter-size thumbnail for the face switcher (a file, shown at twice its
 /// size). Any change to the face gives new names.
 public enum BakeKeys {
+    /// Part of every name: bumped when how faces are baked changes, so what was baked before is baked again
+    /// (2: layers baked while their background image was wrongly taken as not ready had the placeholder color)
+    static let version: UInt8 = 2
+
     public static func hash(_ face: WatchFace) -> String {
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325 // FNV-1a
-        for byte in face.encoded() {
+        for byte in [version] + face.encoded() {
             hash = (hash ^ UInt64(byte)) &* 0x100_0000_01b3
         }
         let hex = Array("0123456789abcdef".utf8)

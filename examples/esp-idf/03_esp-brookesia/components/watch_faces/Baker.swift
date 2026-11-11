@@ -214,6 +214,12 @@ final class Baker {
         let mode: RenderMode = product == .slot ? .bakeStatic(gradientStrip: strip)
                                                 : .bakeThumbnail(gradientStrip: strip, time: thumbnailTime)
         let rendered = RenderedFace(face: face, parent: content, mode: mode)
+        if !rendered.isBackgroundReady {
+            // Its background image isn't there after all: baked now, it would keep the placeholder color
+            lv_obj_delete(screen)
+            requeue(face, product)
+            return
+        }
 
         var file: UnsafeMutablePointer<FILE>?
         let tmpPath = RenderedFace.thumbnailPath(face) + ".tmp"
