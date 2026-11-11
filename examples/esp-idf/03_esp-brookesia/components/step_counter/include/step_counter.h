@@ -30,6 +30,10 @@ void step_counter_save(void);
 /* Drain the FIFO if the last drain was ~1 s ago (cheap otherwise): call between light sleeps. */
 void step_counter_poll(void);
 
+/* The watch's orientation: the mean acceleration (mg, the IMU's axes) over the last ~1 s, and whether it lay still
+ * meanwhile. False if there's no recent reading. */
+bool step_counter_gravity(int32_t *x_mg, int32_t *y_mg, int32_t *z_mg, bool *still);
+
 /* Calibration aid: log the acceleration magnitudes of the next ~2 s of drains. */
 void step_counter_trace(void);
 

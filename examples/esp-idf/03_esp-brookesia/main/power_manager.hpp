@@ -25,3 +25,7 @@ typedef bool (*power_manager_key_cb_t)(void);
  * Call after the GUI is up and pmu_init() has succeeded.
  */
 void power_manager_start(lv_obj_t *home_screen, power_manager_key_cb_t key_cb);
+
+/* Show the night clock for a while now, whatever the time and the watch's position (Indstillinger: to try it).
+ * From any task. */
+void power_manager_try_night_clock(void);

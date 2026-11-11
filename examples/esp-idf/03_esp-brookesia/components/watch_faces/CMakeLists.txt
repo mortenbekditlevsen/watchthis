@@ -34,4 +34,6 @@ target_sources(${COMPONENT_LIB}
     Birthday.swift
     WeatherApp.swift
     BasketApp.swift
+    NightClock.swift
+    CalculatorApp.swift
 )

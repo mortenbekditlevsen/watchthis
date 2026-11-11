@@ -33,6 +33,17 @@ void weather_app_hide(void);
 void basket_app_show(lv_obj_t *screen);
 void basket_app_hide(void);
 
+/* The Lommeregner app's run()/close() (brookesia_app_calculator), with the LVGL lock held: a calculator on `screen` */
+void calculator_app_show(lv_obj_t *screen);
+void calculator_app_hide(void);
+
+/* The night clock (big red time and the date, drawn for a watch lying on its side; its own screen): `side` 1 = lying
+ * on its left side, -1 = on its right side. With the LVGL lock held. Hiding brings back the screen shown before. */
+void night_clock_show(int32_t side);
+void night_clock_hide(void);
+/* Called on the LVGL task when the night clock is long pressed (~1 s) */
+void night_clock_set_tap_handler(void (*tapped)(void));
+
 /* Called (on the LVGL task) when the user swipes up on a watch face: go to the home screen */
 void watch_faces_set_home_handler(void (*go_home)(void));
 

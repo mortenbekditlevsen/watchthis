@@ -11,27 +11,27 @@ static inline int32_t wf_radius_circle(void) { return LV_RADIUS_CIRCLE; }
 
 static inline const lv_font_t *wf_builtin_font(int size)
 {
+    // Montserrat with the Danish letters (ÆØÅæøå; the rest falls back to LVGL's own Montserrat)
     switch (size) {
-    case 8: return &lv_font_montserrat_8;
-    case 10: return &lv_font_montserrat_10;
-    case 12: return &lv_font_montserrat_12;
-    case 14: return &lv_font_montserrat_14;
-    case 16: return &lv_font_montserrat_16;
-    case 18: return &lv_font_montserrat_18;
-    case 22: return &lv_font_montserrat_22;
-    case 24: return &lv_font_montserrat_24;
-    case 26: return &lv_font_montserrat_26;
-    case 30: return &lv_font_montserrat_30;
-    case 32: return &lv_font_montserrat_32;
-    case 34: return &lv_font_montserrat_34;
-    case 36: return &lv_font_montserrat_36;
-    case 38: return &lv_font_montserrat_38;
-    case 40: return &lv_font_montserrat_40;
-    case 42: return &lv_font_montserrat_42;
-    case 44: return &lv_font_montserrat_44;
-    case 66: return &watch_font_number_66;
-    // 20 and 28 with the Danish letters (ÆØÅæøå), falling back to Montserrat for the rest
+    case 8: return &watch_font_danish_8;
+    case 10: return &watch_font_danish_10;
+    case 12: return &watch_font_danish_12;
+    case 14: return &watch_font_danish_14;
+    case 16: return &watch_font_danish_16;
+    case 18: return &watch_font_danish_18;
+    case 22: return &watch_font_danish_22;
+    case 24: return &watch_font_danish_24;
+    case 26: return &watch_font_danish_26;
     case 28: return &watch_font_danish_28;
+    case 30: return &watch_font_danish_30;
+    case 32: return &watch_font_danish_32;
+    case 34: return &watch_font_danish_34;
+    case 36: return &watch_font_danish_36;
+    case 38: return &watch_font_danish_38;
+    case 40: return &watch_font_danish_40;
+    case 42: return &watch_font_danish_42;
+    case 44: return &watch_font_danish_44;
+    case 66: return &watch_font_number_66;
     default: return &watch_font_danish_20;
     }
 }
@@ -111,3 +111,32 @@ static inline uint32_t wf_display_invalid_pixels(lv_display_t *disp)
 #include <fcntl.h>
 // open() is variadic (Swift can't call it)
 static inline int wf_open_read(const char *path) { return open(path, O_RDONLY); }
+
+// For NightClock.swift: text drawn upright into an L8 buffer (white on black: the value is the coverage), to be
+// turned on its side there. Via a canvas object that only lives for the call.
+static inline int32_t wf_text_width(const char *text, const lv_font_t *font)
+{
+    lv_point_t size;
+    lv_text_get_size(&size, text, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    return size.x;
+}
+static inline uint32_t wf_l8_stride(int32_t w) { return lv_draw_buf_width_to_stride(w, LV_COLOR_FORMAT_L8); }
+static inline void wf_render_text_l8(lv_obj_t *parent, uint8_t *buf, int32_t w, int32_t h, const char *text,
+                                     const lv_font_t *font)
+{
+    lv_obj_t *canvas = lv_canvas_create(parent);
+    lv_canvas_set_buffer(canvas, buf, w, h, LV_COLOR_FORMAT_L8);
+    lv_canvas_fill_bg(canvas, lv_color_black(), LV_OPA_COVER);
+    lv_layer_t layer;
+    lv_canvas_init_layer(canvas, &layer);
+    lv_draw_label_dsc_t dsc;
+    lv_draw_label_dsc_init(&dsc);
+    dsc.font = font;
+    dsc.color = lv_color_white();
+    dsc.text = text;
+    dsc.align = LV_TEXT_ALIGN_CENTER;
+    lv_area_t area = {0, 0, w - 1, h - 1};
+    lv_draw_label(&layer, &dsc, &area);
+    lv_canvas_finish_layer(canvas, &layer);
+    lv_obj_delete(canvas);
+}

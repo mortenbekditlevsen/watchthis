@@ -23,6 +23,8 @@
 #include "ble_background.hpp"
 #include "time_sync.hpp"
 #include "power_manager.hpp"
+#include "watch_faces.h"
+#include "settings.h"
 
 static const char *TAG = "Power";
 
@@ -59,7 +61,8 @@ static constexpr int NIGHT_START_HOUR = 20;     // Local time; the night window 
 static constexpr int NIGHT_END_HOUR = 7;
 static constexpr gpio_num_t PA_CTRL_GPIO = GPIO_NUM_6;  // Speaker amplifier enable (NS4150B), high = on
 
-static constexpr uint32_t TASK_STACK_SIZE = 6 * 1024;
+// The night clock is built on this task (night_clock_show, which also draws its date): at 6 KB, 836 bytes were left
+static constexpr uint32_t TASK_STACK_SIZE = 10 * 1024;
 
 static lv_obj_t *home_screen = nullptr;
 static power_manager_key_cb_t key_callback = nullptr;
@@ -138,6 +141,125 @@ static bool is_night(void)
     return (t.tm_hour >= NIGHT_START_HOUR) || (t.tm_hour < NIGHT_END_HOUR);
 }
 
+// Night clock (components/watch_faces/NightClock.swift; switched on in Indstillinger): a watch lying still on its
+// left side shows the time, dim (at any hour: the switch decides). Shown from sleep once it has lain like that for
+// NIGHT_CLOCK_STILL_US, and straight away when the screen is woken while it lies like that (rather than the normal
+// screen at full brightness first). Ends when it is picked up (no longer on its left side) or long pressed (~1 s: a
+// tap doesn't); after a long press it stays away until the watch has been moved (else it would come straight back).
+// The power key and the idle timeout turn the screen off as elsewhere, without ending it: woken again (key, touch),
+// it's still the night clock; it just doesn't come back by itself until the watch has been moved.
+static constexpr int64_t NIGHT_CLOCK_STILL_US = 3LL * 1000 * 1000;
+// On its side: gravity along the screen's horizontal axis. Which IMU axis that is, and its sign with the left side
+// down: NIGHT_CLOCK_AXIS (0 = x, 1 = y) and NIGHT_CLOCK_LEFT_SIGN
+static constexpr int NIGHT_CLOCK_AXIS = 1;          // Measured: left side down, y = -1008 mg
+static constexpr int NIGHT_CLOCK_LEFT_SIGN = -1;
+static constexpr int64_t NIGHT_CLOCK_TRY_US = 20LL * 1000 * 1000;   // Tried from Indstillinger
+static constexpr int32_t SIDEWAYS_MIN_MG = 800;     // Along that axis
+static constexpr int32_t SIDEWAYS_MAX_OTHER_MG = 450;   // Along each of the others
+
+static bool night_clock_shown = false;
+static bool night_clock_dismissed = false;     // Long pressed away: not until moved
+static bool night_clock_slept = false;         // Screen turned off from it: only at wake until moved
+static int64_t night_clock_still_since = 0;
+static volatile bool night_clock_tapped = false;   // Long pressed
+static volatile bool night_clock_try_requested = false;
+static int64_t night_clock_try_until = 0;       // While tried: shown until then, whatever the time and position
+
+// The clock is set (else the night clock has nothing to show)
+static bool clock_is_set(void)
+{
+    const time_t now = time(nullptr);
+    struct tm t;
+    localtime_r(&now, &t);
+    return t.tm_year + 1900 >= 2024;
+}
+
+// Which side the watch lies on: 1 = left side down, -1 = right side down, 0 = not on its side (or no reading).
+// `still`: it lay still over the last reading.
+static int lying_side(bool *still, bool *have_reading)
+{
+    int32_t g[3];
+    *still = false;
+    *have_reading = step_counter_gravity(&g[0], &g[1], &g[2], still);
+    if (!*have_reading) {
+        return 0;
+    }
+    const int32_t along = g[NIGHT_CLOCK_AXIS];
+    for (int a = 0; a < 3; a++) {
+        if ((a != NIGHT_CLOCK_AXIS) && ((g[a] > SIDEWAYS_MAX_OTHER_MG) || (g[a] < -SIDEWAYS_MAX_OTHER_MG))) {
+            return 0;
+        }
+    }
+    if (along >= SIDEWAYS_MIN_MG) {
+        return NIGHT_CLOCK_LEFT_SIGN;
+    }
+    if (along <= -SIDEWAYS_MIN_MG) {
+        return -NIGHT_CLOCK_LEFT_SIGN;
+    }
+    return 0;
+}
+
+// While asleep: the side to show the night clock for, once it's due (else 0)
+static int night_clock_due(void)
+{
+    bool still = false, have_reading = false;
+    const int side = lying_side(&still, &have_reading);
+    if (!have_reading) {
+        return 0;
+    }
+    if ((side != 1) || !still) {
+        night_clock_still_since = 0;
+        night_clock_dismissed = false;  // Moved: it may come back next time it's laid down
+        night_clock_slept = false;
+        return 0;
+    }
+    if (night_clock_dismissed || night_clock_slept || !clock_is_set() || !settings_night_clock_enabled()) {
+        return 0;
+    }
+    const int64_t now = esp_timer_get_time();
+    if (night_clock_still_since == 0) {
+        night_clock_still_since = now;
+    }
+    return (now - night_clock_still_since >= NIGHT_CLOCK_STILL_US) ? side : 0;
+}
+
+// Waking the screen (key, touch): straight to the night clock if it lies so (on its left side; it needn't have
+// lain still for long)
+static bool night_clock_at_wake(void)
+{
+    bool still = false, have_reading = false;
+    return settings_night_clock_enabled() && !night_clock_dismissed && clock_is_set() &&
+           (lying_side(&still, &have_reading) == 1);
+}
+
+static constexpr uint32_t NIGHT_CLOCK_FRAME_WAIT_MS = 500;
+static volatile bool night_clock_frame_drawn = false;
+
+static void on_night_clock_frame(lv_event_t *)
+{
+    night_clock_frame_drawn = true;
+}
+
+static void on_night_clock_tapped(void)
+{
+    night_clock_tapped = true;
+}
+
+// Back to the screen from before, at the normal brightness (with the idle countdown restarted). The LVGL lock is taken.
+static void night_clock_end(bool dismissed, const char *why)
+{
+    bsp_display_lock(0);
+    night_clock_hide();
+    bsp_display_backlight_on();
+    lv_display_trigger_activity(nullptr);
+    bsp_display_unlock();
+    night_clock_shown = false;
+    night_clock_try_until = 0;
+    night_clock_dismissed = dismissed;
+    night_clock_still_since = 0;
+    ESP_LOGI(TAG, "Night clock off: %s%s", why, dismissed ? " (until moved)" : "");
+}
+
 // A running timer (Timer app) is due: wake up so it can ring
 static bool timer_due(void)
 {
@@ -204,6 +326,7 @@ static void sleep_until_power_key(void)
     esp_sleep_enable_timer_wakeup(TOUCH_POLL_PERIOD_MS * 1000);
     set_phase(Phase::Sleeping);
     const int64_t asleep_since = esp_timer_get_time();
+    int night_side = 0;
     while (!pmu_pkey_short_pressed() && !timer_due()) {
         if (touch_awake) {
             const bool i2c_check = (++touch_polls % (POLL_PERIOD_MS / TOUCH_POLL_PERIOD_MS)) == 0;
@@ -222,6 +345,10 @@ static void sleep_until_power_key(void)
         }
         battery_log_poll(true);
         step_counter_poll();    // The IMU's FIFO holds only ~4 s of samples
+        night_side = night_clock_due();
+        if (night_side != 0) {
+            break;
+        }
         const bool on_battery = !pmu_vbus_present();
         if (on_battery) {
             // Unplugged while asleep: BLE only runs in the background while charging (main.cpp); its task stops it
@@ -255,6 +382,12 @@ static void sleep_until_power_key(void)
     // The ESP32's clock drifts in light sleep (RC oscillator); the RTC chip's crystal doesn't
     time_sync_restore_from_rtc();
 
+    // Woken (key, touch) lying on its left side: the night clock, before anything else is shown. Not for a
+    // timer that is due: it rings over the normal screen.
+    if ((night_side == 0) && !timer_due() && night_clock_at_wake()) {
+        night_side = 1;
+    }
+
     if (!touch_awake) {
         bsp_touch_sleep(false); // Reset pulse wakes the touch controller (~200 ms)
     }
@@ -272,13 +405,39 @@ static void sleep_until_power_key(void)
         lv_indev_enable(touch, true);
     }
     lv_display_trigger_activity(nullptr);   // Restart the idle countdown
-    lv_obj_invalidate(lv_screen_active());
-    bsp_display_backlight_on();
+    if ((night_side == 0) && night_clock_shown) {
+        // Asleep from the night clock, woken not lying so (or for a timer): back to the screen from before
+        night_clock_hide();
+        night_clock_shown = false;
+    }
+    if (night_side != 0) {
+        night_clock_tapped = false;
+        night_clock_show(night_side);   // (Still there if it was asleep from it)
+        lv_obj_invalidate(lv_screen_active());
+        night_clock_frame_drawn = false;
+        lv_display_add_event_cb(lv_display_get_default(), on_night_clock_frame, LV_EVENT_REFR_READY, nullptr);
+    } else {
+        lv_obj_invalidate(lv_screen_active());
+        bsp_display_backlight_on();
+    }
     bsp_display_unlock();
+    if (night_side != 0) {
+        // The screen lights up once the LVGL task has drawn the clock (it still holds the frame from before). Not
+        // drawn here: rendering needs far more stack than this task has.
+        for (uint32_t waited = 0; !night_clock_frame_drawn && (waited < NIGHT_CLOCK_FRAME_WAIT_MS); waited += 10) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+        bsp_display_lock(0);
+        lv_display_remove_event_cb_with_user_data(lv_display_get_default(), on_night_clock_frame, nullptr);
+        bsp_display_brightness_set(settings_night_brightness());
+        bsp_display_unlock();
+        night_clock_shown = true;
+    }
 
     set_phase(Phase::Awake);
     ESP_LOGI(TAG, "Wake%s (%" PRIu32 " sleep cycles so far, power task stack free: %u bytes)",
-             woken_by_touch ? " by touch" : "", breadcrumb_sleep_cycles, (unsigned)uxTaskGetStackHighWaterMark(nullptr));
+             (night_side != 0) ? ": night clock" : (woken_by_touch ? " by touch" : ""), breadcrumb_sleep_cycles,
+             (unsigned)uxTaskGetStackHighWaterMark(nullptr));
 }
 
 static void power_task(void *arg)
@@ -286,7 +445,46 @@ static void power_task(void *arg)
     while (true) {
         // On USB power too, the screen goes off after a while idle; the sleep loop then keeps the CPU awake (no light
         // sleep), so the USB console and flashing keep working
-        if (pmu_pkey_short_pressed()) {
+        if (night_clock_try_requested && !night_clock_shown) {
+            night_clock_try_requested = false;
+            bool still = false, have_reading = false;
+            const int side = lying_side(&still, &have_reading);
+            if (bsp_display_lock(0)) {
+                night_clock_tapped = false;
+                night_clock_show((side != 0) ? side : 1);   // As if on its left side, unless it lies on one
+                bsp_display_brightness_set(settings_night_brightness());
+                bsp_display_unlock();
+                night_clock_shown = true;
+                night_clock_try_until = esp_timer_get_time() + NIGHT_CLOCK_TRY_US;
+            }
+        }
+        if (night_clock_shown) {
+            // Stays on (it isn't an idle screen) until long pressed, the key or picked up
+            bool still = false, have_reading = false;
+            const int side = lying_side(&still, &have_reading);
+            bool idle = false;
+            if (bsp_display_lock(0)) {
+                idle = lv_display_get_inactive_time(nullptr) >= SLEEP_IDLE_MS;
+                bsp_display_unlock();
+            }
+            const bool key = pmu_pkey_short_pressed();     // (Reading it clears it)
+            if (key && (night_clock_try_until != 0)) {
+                night_clock_end(false, "key");
+                sleep_until_power_key();
+            } else if ((key || idle) && (night_clock_try_until == 0)) {
+                // Screen off, still the night clock (shown again at wake if it lies so)
+                night_clock_slept = true;
+                sleep_until_power_key();
+            } else if (night_clock_tapped) {
+                night_clock_end(night_clock_try_until == 0, "long press");
+            } else if (night_clock_try_until != 0) {
+                if (esp_timer_get_time() >= night_clock_try_until) {
+                    night_clock_end(false, "try over");
+                }
+            } else if ((have_reading && (side != 1)) || !clock_is_set() || !settings_night_clock_enabled()) {
+                night_clock_end(false, "not on its left side");
+            }
+        } else if (pmu_pkey_short_pressed()) {
             bool handled = false;
             if ((key_callback != nullptr) && bsp_display_lock(0)) {
                 handled = key_callback();
@@ -304,6 +502,11 @@ static void power_task(void *arg)
     }
 }
 
+void power_manager_try_night_clock(void)
+{
+    night_clock_try_requested = true;
+}
+
 void power_manager_start(lv_obj_t *screen, power_manager_key_cb_t key_cb)
 {
     report_last_reset();
@@ -317,5 +520,6 @@ void power_manager_start(lv_obj_t *screen, power_manager_key_cb_t key_cb)
 
     home_screen = screen;
     key_callback = key_cb;
+    night_clock_set_tap_handler(on_night_clock_tapped);
     xTaskCreate(power_task, "power", TASK_STACK_SIZE, nullptr, 3, nullptr);
 }

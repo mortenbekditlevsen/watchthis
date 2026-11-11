@@ -52,7 +52,7 @@ constexpr uint32_t STEPS_SAVE_S = 60 * 60;
 constexpr const char *BOOT_APP_NAME = "Ur";
 
 // Launcher order (registry names, i.e. the app titles), 4 per page; apps not listed follow in registration order
-static const char *const APP_ORDER[] = {"Ur", "Skridt", "Stopur", "Tidstagning", "Vejr", "Katte", "Musik", "Partikler", "Det lille spil", "Basket", "Synk", "Indstillinger"};
+static const char *const APP_ORDER[] = {"Ur", "Skridt", "Stopur", "Tidstagning", "Vejr", "Katte", "Musik", "Partikler", "Det lille spil", "Basket", "Lommeregner", "Synk", "Indstillinger"};
 
 // The watch's name is the home screen title, shown in the band between the status bar and the app launcher (see
 // dark/app_launcher_data.hpp). It's stored on the watch (watch_name.cpp); this is only the initial name of a watch
@@ -206,6 +206,7 @@ extern "C" void app_main(void)
     };
     ESP_UTILS_CHECK_NULL_EXIT(bsp_display_start_with_config(&cfg), "Start display failed");
     settings_restore(); // The brightness chosen in Indstillinger
+    settings_set_try_night_handler(power_manager_try_night_clock);
     ESP_UTILS_CHECK_ERROR_EXIT(bsp_display_backlight_on(), "Turn on display backlight failed");
 
     /* Configure GUI lock */

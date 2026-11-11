@@ -94,6 +94,19 @@ struct Detector {
 };
 static Detector detector;
 
+// The watch's orientation (step_counter_gravity): the mean acceleration of the last FIFO drain, and how much it varied
+struct Gravity {
+    int64_t sum[3];
+    int32_t min[3], max[3];
+    int count;
+};
+static constexpr int GRAVITY_MIN_SAMPLES = 8;     // ~0.25 s at 31.25 Hz
+static constexpr int32_t STILL_RANGE_MG = 80;       // Each axis within this (lying still; a hand is never this still)
+static Gravity gravity_batch;
+static int32_t gravity_mg[3] = {};
+static bool gravity_still = false;
+static int64_t gravity_at_us = 0;
+
 static bool reg_write(uint8_t reg, uint8_t value)
 {
     uint8_t buf[2] = {reg, value};
@@ -226,6 +239,11 @@ static void drain_fifo_locked(bool trace)
     char line[200];
     int line_len = 0;
     uint8_t buf[FIFO_READ_CHUNK];
+    gravity_batch = {};
+    for (int a = 0; a < 3; a++) {
+        gravity_batch.min[a] = INT32_MAX;
+        gravity_batch.max[a] = INT32_MIN;
+    }
     for (size_t pos = 0; pos < bytes; pos += sizeof(buf)) {
         const size_t len = (bytes - pos < sizeof(buf)) ? bytes - pos : sizeof(buf);
         if (!reg_read(REG_FIFO_DATA, buf, len)) {
@@ -240,6 +258,13 @@ static void drain_fifo_locked(bool trace)
                           mz = az * 1000 / ACCEL_LSB_PER_G;
             const int magnitude = (int)isqrt((uint32_t)(mx * mx + my * my + mz * mz));
             detect_step_locked(magnitude);
+            const int32_t m[3] = {mx, my, mz};
+            for (int a = 0; a < 3; a++) {
+                gravity_batch.sum[a] += m[a];
+                gravity_batch.min[a] = (m[a] < gravity_batch.min[a]) ? m[a] : gravity_batch.min[a];
+                gravity_batch.max[a] = (m[a] > gravity_batch.max[a]) ? m[a] : gravity_batch.max[a];
+            }
+            gravity_batch.count++;
             if (trace) {
                 line_len += snprintf(line + line_len, sizeof(line) - line_len, " %d", magnitude);
                 if (line_len > (int)sizeof(line) - 12) {
@@ -250,6 +275,14 @@ static void drain_fifo_locked(bool trace)
         }
     }
     reg_write(REG_FIFO_CTRL, FIFO_CTRL_STREAM_128);     // Leave FIFO read mode
+    if (gravity_batch.count >= GRAVITY_MIN_SAMPLES) {
+        gravity_still = true;
+        for (int a = 0; a < 3; a++) {
+            gravity_mg[a] = (int32_t)(gravity_batch.sum[a] / gravity_batch.count);
+            gravity_still = gravity_still && (gravity_batch.max[a] - gravity_batch.min[a] <= STILL_RANGE_MG);
+        }
+        gravity_at_us = esp_timer_get_time();
+    }
     if (trace) {
         if (line_len > 0) {
             ESP_LOGI(TAG, "trc%s", line);
@@ -371,6 +404,20 @@ void step_counter_poll(void)
 {
     std::lock_guard<std::mutex> guard(lock);
     poll_locked(false);
+}
+
+bool step_counter_gravity(int32_t *x_mg, int32_t *y_mg, int32_t *z_mg, bool *still)
+{
+    std::lock_guard<std::mutex> guard(lock);
+    // Only a fresh reading (the FIFO is drained about once a second, also in light sleep)
+    if (!ready || (gravity_at_us == 0) || (esp_timer_get_time() - gravity_at_us > 3 * POLL_INTERVAL_US)) {
+        return false;
+    }
+    *x_mg = gravity_mg[0];
+    *y_mg = gravity_mg[1];
+    *z_mg = gravity_mg[2];
+    *still = gravity_still;
+    return true;
 }
 
 uint32_t step_counter_today(void)

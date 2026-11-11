@@ -35,8 +35,19 @@ SquarelineDemo *SquarelineDemo::requestInstance(bool use_status_bar, bool use_na
     return _instance;
 }
 
+// No navigation gestures (nor the home indicator bar that shows them): the faces go home on a swipe up anywhere
+// themselves (components/watch_faces/Carousel.swift)
+static phone::App::Config phone_config(bool use_status_bar, bool use_navigation_bar)
+{
+    phone::App::Config config = phone::App::Config::SIMPLE_CONSTRUCTOR(&esp_brookesia_app_icon_launcher_clock_112_112,
+                                use_status_bar, use_navigation_bar);
+    config.flags.enable_navigation_gesture = 0;
+    return config;
+}
+
 SquarelineDemo::SquarelineDemo(bool use_status_bar, bool use_navigation_bar):
-    App(APP_NAME, &esp_brookesia_app_icon_launcher_clock_112_112, false, use_status_bar, use_navigation_bar)
+    App(base::App::Config::SIMPLE_CONSTRUCTOR(APP_NAME, &esp_brookesia_app_icon_launcher_clock_112_112, false),
+        phone_config(use_status_bar, use_navigation_bar))
 {
 }
 
