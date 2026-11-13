@@ -23,6 +23,8 @@ target_sources(${COMPONENT_LIB}
     ${KIT}/PNG.swift
     ${KIT}/Fireworks.swift
     ${KIT}/Weather.swift
+    ${KIT}/Book.swift
+    ${KIT}/Paint.swift
     LV.swift
     FaceRenderer.swift
     ImageWorker.swift
@@ -36,4 +38,6 @@ target_sources(${COMPONENT_LIB}
     BasketApp.swift
     NightClock.swift
     CalculatorApp.swift
+    BooksApp.swift
+    PaintApp.swift
 )

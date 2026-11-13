@@ -37,6 +37,14 @@ void basket_app_hide(void);
 void calculator_app_show(lv_obj_t *screen);
 void calculator_app_hide(void);
 
+/* The Bøger app's run()/close() (brookesia_app_books), with the LVGL lock held: books from the phone on `screen` */
+void books_app_show(lv_obj_t *screen);
+void books_app_hide(void);
+
+/* The Tegn app's run()/close() (brookesia_app_paint), with the LVGL lock held: a small paint app on `screen` */
+void paint_app_show(lv_obj_t *screen);
+void paint_app_hide(void);
+
 /* The night clock (big red time and the date, drawn for a watch lying on its side; its own screen): `side` 1 = lying
  * on its left side, -1 = on its right side. With the LVGL lock held. Hiding brings back the screen shown before. */
 void night_clock_show(int32_t side);

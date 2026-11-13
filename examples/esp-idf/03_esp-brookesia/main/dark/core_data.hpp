@@ -7,6 +7,7 @@
 
 #include "systems/base/esp_brookesia_base_context.hpp"
 #include "systems/phone/assets/esp_brookesia_phone_assets.h"
+#include "../shell_fonts.hpp"
 
 namespace esp_brookesia::systems::phone {
 
@@ -20,27 +21,27 @@ constexpr base::Display::Data STYLESHEET_410_502_DARK_CORE_DISPLAY_DATA = {
     .text = {
         .default_fonts_num = 21,
         .default_fonts = {
-            gui::StyleFont::CUSTOM_SIZE(8, &esp_brookesia_font_maison_neue_book_8),
-            gui::StyleFont::CUSTOM_SIZE(10, &esp_brookesia_font_maison_neue_book_10),
-            gui::StyleFont::CUSTOM_SIZE(12, &esp_brookesia_font_maison_neue_book_12),
-            gui::StyleFont::CUSTOM_SIZE(14, &esp_brookesia_font_maison_neue_book_14),
-            gui::StyleFont::CUSTOM_SIZE(16, &esp_brookesia_font_maison_neue_book_16),
-            gui::StyleFont::CUSTOM_SIZE(18, &esp_brookesia_font_maison_neue_book_18),
-            gui::StyleFont::CUSTOM_SIZE(20, &esp_brookesia_font_maison_neue_book_20),
-            gui::StyleFont::CUSTOM_SIZE(22, &esp_brookesia_font_maison_neue_book_22),
-            gui::StyleFont::CUSTOM_SIZE(24, &esp_brookesia_font_maison_neue_book_24),
-            gui::StyleFont::CUSTOM_SIZE(26, &esp_brookesia_font_maison_neue_book_26),
-            gui::StyleFont::CUSTOM_SIZE(28, &esp_brookesia_font_maison_neue_book_28),
-            gui::StyleFont::CUSTOM_SIZE(30, &esp_brookesia_font_maison_neue_book_30),
-            gui::StyleFont::CUSTOM_SIZE(32, &esp_brookesia_font_maison_neue_book_32),
-            gui::StyleFont::CUSTOM_SIZE(34, &esp_brookesia_font_maison_neue_book_34),
-            gui::StyleFont::CUSTOM_SIZE(36, &esp_brookesia_font_maison_neue_book_36),
-            gui::StyleFont::CUSTOM_SIZE(38, &esp_brookesia_font_maison_neue_book_38),
-            gui::StyleFont::CUSTOM_SIZE(40, &esp_brookesia_font_maison_neue_book_40),
-            gui::StyleFont::CUSTOM_SIZE(42, &esp_brookesia_font_maison_neue_book_42),
-            gui::StyleFont::CUSTOM_SIZE(44, &esp_brookesia_font_maison_neue_book_44),
-            gui::StyleFont::CUSTOM_SIZE(46, &esp_brookesia_font_maison_neue_book_46),
-            gui::StyleFont::CUSTOM_SIZE(48, &esp_brookesia_font_maison_neue_book_48),
+            gui::StyleFont::CUSTOM_SIZE(8, &shell_font_8),
+            gui::StyleFont::CUSTOM_SIZE(10, &shell_font_10),
+            gui::StyleFont::CUSTOM_SIZE(12, &shell_font_12),
+            gui::StyleFont::CUSTOM_SIZE(14, &shell_font_14),
+            gui::StyleFont::CUSTOM_SIZE(16, &shell_font_16),
+            gui::StyleFont::CUSTOM_SIZE(18, &shell_font_18),
+            gui::StyleFont::CUSTOM_SIZE(20, &shell_font_20),
+            gui::StyleFont::CUSTOM_SIZE(22, &shell_font_22),
+            gui::StyleFont::CUSTOM_SIZE(24, &shell_font_24),
+            gui::StyleFont::CUSTOM_SIZE(26, &shell_font_26),
+            gui::StyleFont::CUSTOM_SIZE(28, &shell_font_28),
+            gui::StyleFont::CUSTOM_SIZE(30, &shell_font_30),
+            gui::StyleFont::CUSTOM_SIZE(32, &shell_font_32),
+            gui::StyleFont::CUSTOM_SIZE(34, &shell_font_34),
+            gui::StyleFont::CUSTOM_SIZE(36, &shell_font_36),
+            gui::StyleFont::CUSTOM_SIZE(38, &shell_font_38),
+            gui::StyleFont::CUSTOM_SIZE(40, &shell_font_40),
+            gui::StyleFont::CUSTOM_SIZE(42, &shell_font_42),
+            gui::StyleFont::CUSTOM_SIZE(44, &shell_font_44),
+            gui::StyleFont::CUSTOM_SIZE(46, &shell_font_46),
+            gui::StyleFont::CUSTOM_SIZE(48, &shell_font_48),
         },
     },
     .container = {

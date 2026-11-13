@@ -202,7 +202,7 @@ Result status codes:
 
 Notes:
 
-- **kind:** 0 = photo, 1 = music, 2 = watch face, 3 = face asset (§12), 4 = weather (§13).
+- **kind:** 0 = photo, 1 = music, 2 = watch face, 3 = face asset (§12), 4 = weather (§13), 5 = book (§14).
 - **SetTime:** the watch stores the time in its RTC and the TZ string in flash. iOS has no POSIX TZ API; derive
   the string from `TimeZone` (standard/daylight offsets and transition rules) or map common IANA zones, e.g.
   `Europe/Copenhagen` → `CET-1CEST,M3.5.0,M10.5.0/3`. Note the POSIX sign convention (`CET-1` = UTC+1).
@@ -382,3 +382,23 @@ Conditions: 0 clear, 1 partly cloudy, 2 cloudy, 3 fog, 4 drizzle, 5 rain, 6 show
 (`WeatherCondition(wmo:)` maps WMO weather codes). Wind from 10.8 m/s counts as windy. The watch shows how old the
 forecast is and says so when it's more than 6 hours old. The iOS app gets forecasts from Open-Meteo.
 
+## 14. Books
+
+With the capability `Books`, the watch's Bøger app shows books the phone uploads as files of kind 5. Upload them like
+photos (§8); the display name is the book's title (shown in the watch's library), the id is readable ASCII from the
+title plus a hash of the contents (WatchSync `BookImporter.fileID`). Delete with FileDelete; the watch then also
+forgets where the book was read to. The content is a WatchFaceKit `BookFile`
+(`components/watch_faces/WatchFaceKit/Sources/WatchFaceKit/Book.swift`), checked at commit by its magic:
+
+```
+"WBK1" | version u8 (1) | chapterCount u16 | textOffset u32 | textLength u32       (little endian)
+chapterCount × { textByteOffset u32 | titleLength u8 | title (UTF-8, ≤ 255 bytes) }
+text at textOffset: textLength bytes of UTF-8, paragraphs separated by "\n"
+```
+
+Chapters are in reading order; `textByteOffset` is where each starts in the text. The text may only use the characters
+of the watch's reading font: ASCII (0x20–0x7E), Latin-1 (0xA0–0xFF) and – — ‘ ’ “ ” „ • … € (WatchSync `BookText`
+maps or drops everything else, and joins hard-wrapped lines of plain text). The phone makes books from TXT (chapters
+from headings such as "Kapitel 3", "CHAPTER IV" or a numeral on its own line) and DRM-free EPUB (the spine's
+documents in order, titled from the table of contents). The watch reads where it was read to, per book, from
+`/store/books/<id>.pos`; that isn't sent to the phone.

@@ -30,6 +30,10 @@ LV_FONT_DECLARE(watch_font_danish_38);
 LV_FONT_DECLARE(watch_font_danish_40);
 LV_FONT_DECLARE(watch_font_danish_42);
 LV_FONT_DECLARE(watch_font_danish_44);
+/* The Bøger app's reading fonts: ASCII, Latin-1 and typographic punctuation (– — ‘ ’ “ ” „ • … €) */
+LV_FONT_DECLARE(watch_font_read_20);
+LV_FONT_DECLARE(watch_font_read_24);
+LV_FONT_DECLARE(watch_font_read_28);
 /* 66 px condensed light oblique, ASCII (0x20-0x7F and °); the big digital clock font */
 LV_FONT_DECLARE(watch_font_number_66);
 

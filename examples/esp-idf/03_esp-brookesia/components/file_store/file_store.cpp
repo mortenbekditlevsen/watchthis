@@ -18,8 +18,8 @@ static const char *TAG = "FileStore";
 
 static constexpr const char *PARTITION_LABEL = "store";
 
-static const char *const KIND_DIR[FILE_STORE_KIND_MAX] = {"photos", "music", "faces", "assets", "weather"};
-static const char *const KIND_EXT[FILE_STORE_KIND_MAX] = {".jpg", ".mp3", ".wf", ".ast", ".wx"};
+static const char *const KIND_DIR[FILE_STORE_KIND_MAX] = {"photos", "music", "faces", "assets", "weather", "books"};
+static const char *const KIND_EXT[FILE_STORE_KIND_MAX] = {".jpg", ".mp3", ".wf", ".ast", ".wx", ".bk"};
 static constexpr const char *NAME_EXT = ".nm";      // Sidecar with the display name
 static constexpr const char *PART_EXT = ".part";    // Upload in progress
 static constexpr size_t SPACE_MARGIN = 64 * 1024;   // Keep LittleFS some room for metadata
@@ -228,6 +228,8 @@ bool format_ok(file_store_kind_t kind, const uint8_t head[8], uint32_t size)
         return memcmp(head, "WFCE", 4) == 0;
     case FILE_STORE_WEATHER:
         return memcmp(head, "WWTR", 4) == 0;
+    case FILE_STORE_BOOK:
+        return memcmp(head, "WBK1", 4) == 0;
     case FILE_STORE_FACE_ASSET:
         return (memcmp(head, "\x89PNG", 4) == 0) ||                       // PNG
                ((head[0] == 0xFF) && (head[1] == 0xD8)) ||                // JPEG SOI
@@ -393,6 +395,11 @@ file_store_err_t file_store_remove(file_store_kind_t kind, const char *id)
         return FILE_STORE_ERR_NOT_FOUND;
     }
     unlink(name_path);
+    if (kind == FILE_STORE_BOOK) {
+        // Where it was read to (BooksApp.swift)
+        snprintf(name_path, sizeof(name_path), "%s/%s/%s.pos", FILE_STORE_ROOT, KIND_DIR[kind], id);
+        unlink(name_path);
+    }
     ESP_LOGI(TAG, "Removed %s/%s", KIND_DIR[kind], id);
     if (change_cb != nullptr) {
         change_cb(kind, id, true);

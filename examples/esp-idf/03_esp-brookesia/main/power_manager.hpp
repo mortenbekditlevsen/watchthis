@@ -10,6 +10,8 @@
  * screens, e.g. the watch face in "Ur"; apps outside `main` use LV_OBJ_FLAG_USER_1 directly.
  */
 #define POWER_MANAGER_IDLE_SLEEP_FLAG LV_OBJ_FLAG_USER_1
+/* With POWER_MANAGER_IDLE_SLEEP_FLAG: the screen goes off after a minute idle instead of 10 s (Bøger: reading) */
+#define POWER_MANAGER_LONG_IDLE_FLAG LV_OBJ_FLAG_USER_2
 
 /**
  * Called on a short press of the power button while awake, with the LVGL lock held. Returns true if it handled the

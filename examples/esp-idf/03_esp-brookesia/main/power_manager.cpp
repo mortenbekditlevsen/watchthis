@@ -53,6 +53,7 @@ static void touch_int_stop()
     bsp_touch_restore_int();
 }
 static constexpr uint32_t SLEEP_IDLE_MS = 10 * 1000;    // Only on the home screen and flagged screens
+static constexpr uint32_t LONG_SLEEP_IDLE_MS = 60 * 1000;   // Screens flagged POWER_MANAGER_LONG_IDLE_FLAG too
 // At night, after this long asleep (on battery, BLE and music off), the PMU switches the board off; the power key
 // boots it again. During the day the watch stays in light sleep (~0.75 %/h), so steps keep counting and it wakes
 // instantly
@@ -273,8 +274,10 @@ static bool home_screen_idle(void)
 
     if (bsp_display_lock(0)) {
         lv_obj_t *screen = lv_screen_active();
+        const uint32_t idle_ms = lv_obj_has_flag(screen, POWER_MANAGER_LONG_IDLE_FLAG) ? LONG_SLEEP_IDLE_MS
+                                 : SLEEP_IDLE_MS;
         idle = ((screen == home_screen) || lv_obj_has_flag(screen, POWER_MANAGER_IDLE_SLEEP_FLAG)) &&
-               (lv_display_get_inactive_time(nullptr) >= SLEEP_IDLE_MS);
+               (lv_display_get_inactive_time(nullptr) >= idle_ms);
         bsp_display_unlock();
     }
 

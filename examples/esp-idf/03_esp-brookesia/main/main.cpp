@@ -28,6 +28,7 @@
 #include "watch_tools.h"
 #include "ble_background.hpp"
 #include "settings.h"
+#include "shell_fonts.hpp"
 #include "src/display/lv_display_private.h"
 
 using namespace esp_brookesia;
@@ -52,7 +53,7 @@ constexpr uint32_t STEPS_SAVE_S = 60 * 60;
 constexpr const char *BOOT_APP_NAME = "Ur";
 
 // Launcher order (registry names, i.e. the app titles), 4 per page; apps not listed follow in registration order
-static const char *const APP_ORDER[] = {"Ur", "Skridt", "Stopur", "Tidstagning", "Vejr", "Katte", "Musik", "Partikler", "Det lille spil", "Basket", "Lommeregner", "Synk", "Indstillinger"};
+static const char *const APP_ORDER[] = {"Ur", "Skridt", "Stopur", "Tidstagning", "Vejr", "Katte", "Musik", "Partikler", "Det lille spil", "Basket", "Lommeregner", "Bøger", "Tegn", "Synk", "Indstillinger"};
 
 // The watch's name is the home screen title, shown in the band between the status bar and the app launcher (see
 // dark/app_launcher_data.hpp). It's stored on the watch (watch_name.cpp); this is only the initial name of a watch
@@ -148,6 +149,9 @@ static bool on_power_key(void)
 extern "C" void app_main(void)
 {
     ESP_UTILS_LOGI("Display ESP-Brookesia phone demo");
+
+    /* The shell's font with the Danish letters (before anything is laid out with it) */
+    shell_fonts_init();
 
     /* Power rails first: the PMU keeps its settings across power-off, so restore anything left switched off */
     pmu_ensure_rails();

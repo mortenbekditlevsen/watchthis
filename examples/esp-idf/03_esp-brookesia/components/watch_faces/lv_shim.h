@@ -36,6 +36,12 @@ static inline const lv_font_t *wf_builtin_font(int size)
     }
 }
 
+// The Bøger app's reading fonts (20, 24 or 28 px)
+static inline const lv_font_t *wf_read_font(int size)
+{
+    return size >= 28 ? &watch_font_read_28 : (size >= 24 ? &watch_font_read_24 : &watch_font_read_20);
+}
+
 // lv_image_dsc_t's header is a bitfield struct; filling it here keeps Swift away from the bit layout
 static inline void wf_image_dsc_init(lv_image_dsc_t *dsc, lv_color_format_t cf, uint32_t w, uint32_t h,
                                      uint32_t stride, const void *data, uint32_t data_size)
