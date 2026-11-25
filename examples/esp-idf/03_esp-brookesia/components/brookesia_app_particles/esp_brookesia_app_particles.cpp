@@ -39,8 +39,19 @@ Particles *Particles::requestInstance()
     return _instance;
 }
 
+// No navigation gestures (nor the home indicator at the bottom that shows them): the particles fill the whole
+// screen. The power key goes back.
+static phone::App::Config phone_config()
+{
+    phone::App::Config config =
+        phone::App::Config::SIMPLE_CONSTRUCTOR(&esp_brookesia_app_icon_launcher_particles_112_112, false, false);
+    config.flags.enable_navigation_gesture = 0;
+    return config;
+}
+
 Particles::Particles():
-    App(APP_NAME, &esp_brookesia_app_icon_launcher_particles_112_112, true, false, false)
+    App(base::App::Config::SIMPLE_CONSTRUCTOR(APP_NAME, &esp_brookesia_app_icon_launcher_particles_112_112, true),
+        phone_config())
 {
 }
 

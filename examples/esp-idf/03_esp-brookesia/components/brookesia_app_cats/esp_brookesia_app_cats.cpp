@@ -1,6 +1,7 @@
 /*
  * SPDX-License-Identifier: CC0-1.0
  */
+#include <algorithm>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -32,14 +33,17 @@ namespace {
 // Ids of the photos in the file store, reloaded each time the app opens (uploads/deletes happen in between)
 std::vector<std::string> photo_ids;
 
+// The ids one at a time: listing them with file_store_list() needed one block of MAX_PHOTOS entries (51 KB), which a
+// fragmented heap often doesn't have (std::bad_alloc: the watch restarted when the app opened)
 void load_photo_ids(void)
 {
     photo_ids.clear();
-    std::vector<file_store_entry_t> entries(MAX_PHOTOS);
-    const int count = file_store_list(FILE_STORE_PHOTO, entries.data(), MAX_PHOTOS);
-    for (int i = 0; i < LV_MIN(count, MAX_PHOTOS); i++) {
-        photo_ids.emplace_back(entries[i].id);
-    }
+    file_store_for_each(FILE_STORE_PHOTO, [](const char *id, void *) {
+        if (photo_ids.size() < MAX_PHOTOS) {
+            photo_ids.emplace_back(id);
+        }
+    }, nullptr);
+    std::sort(photo_ids.begin(), photo_ids.end());
     ESP_UTILS_LOGI("%d photos", (int)photo_ids.size());
 }
 

@@ -62,6 +62,11 @@ bool file_store_mount(void);
  * more than `max`), or -1 on error. */
 int file_store_list(file_store_kind_t kind, file_store_entry_t *entries, int max);
 
+/* Call `fn` with the id of each file of `kind` (in directory order, not sorted; nothing else is read). For when only
+ * the ids are needed: no array of entries (100 bytes each) has to be allocated. Returns how many, or -1 on error.
+ * Don't call other file_store functions from `fn`. */
+int file_store_for_each(file_store_kind_t kind, void (*fn)(const char *id, void *ctx), void *ctx);
+
 /* Full path of a file, for fopen(). */
 bool file_store_path(file_store_kind_t kind, const char *id, char *path, size_t path_len);
 

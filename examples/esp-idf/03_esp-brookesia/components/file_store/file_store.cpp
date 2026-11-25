@@ -107,6 +107,40 @@ bool file_store_mount(void)
     return true;
 }
 
+int file_store_for_each(file_store_kind_t kind, void (*fn)(const char *id, void *ctx), void *ctx)
+{
+    if (!valid_kind(kind) || (fn == nullptr) || !file_store_mount()) {
+        return -1;
+    }
+    Guard guard;
+
+    char dir_path[FILE_STORE_PATH_MAX];
+    snprintf(dir_path, sizeof(dir_path), "%s/%s", FILE_STORE_ROOT, KIND_DIR[kind]);
+    DIR *dir = opendir(dir_path);
+    if (dir == nullptr) {
+        return -1;
+    }
+
+    const char *ext = KIND_EXT[kind];
+    const size_t ext_len = strlen(ext);
+    int count = 0;
+    struct dirent *de;
+    while ((de = readdir(dir)) != nullptr) {
+        const size_t len = strlen(de->d_name);
+        if ((len <= ext_len) || (len - ext_len >= FILE_STORE_ID_MAX) || strcmp(de->d_name + len - ext_len, ext)) {
+            continue;   // Not ours (or a temp file from an interrupted upload)
+        }
+        char id[FILE_STORE_ID_MAX];
+        memcpy(id, de->d_name, len - ext_len);
+        id[len - ext_len] = '\0';
+        fn(id, ctx);
+        count++;
+    }
+    closedir(dir);
+
+    return count;
+}
+
 int file_store_list(file_store_kind_t kind, file_store_entry_t *entries, int max)
 {
     if (!valid_kind(kind) || !file_store_mount()) {
