@@ -18,8 +18,11 @@ private enum Look {
     static let cream = FaceColor(rgb: 0xFFF3D6)
     static let doorColors = [FaceColor(rgb: 0xA3162B), FaceColor(rgb: 0x1E5A34), FaceColor(rgb: 0xEFE2C4)]
 
+    /// By the door's place in the grid, in diagonal stripes: next to each other (across, up or down) doors differ.
+    /// 24 is gold.
     static func doorColor(_ door: Int) -> FaceColor {
-        door == 24 ? FaceColor(rgb: 0xB8862B) : doorColors[(door * 7) % 3]
+        guard door != 24, let i = AdventCalendar.layout.firstIndex(of: door) else { return FaceColor(rgb: 0xB8862B) }
+        return doorColors[(i % 4 + 2 * (i / 4)) % 3]
     }
 
     static func numberColor(_ door: Int) -> FaceColor {

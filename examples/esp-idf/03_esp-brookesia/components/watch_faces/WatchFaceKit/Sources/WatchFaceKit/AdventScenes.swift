@@ -1035,34 +1035,60 @@ struct SceneBuilder<Sink: IconShapeSink> {
     /// 19: Two golden bells with a red bow and holly
     @inline(never) mutating func bells() {
         sky(C.darkRed, FaceColor(rgb: 0x5A0814))
-        snowfall(20)
-        for _ in 0..<12 { star(next() * 100, next() * 120, 1.5, C.alpha(C.gold, 120), points: 4, inner: 0.3) }
-        bell(36, 44, -0.25)
-        bell(64, 44, 0.25)
-        // Holly and the bow on top
-        leaf(50, 30, 16, FaceMath.pi * 1.15, C.green)
-        leaf(50, 30, 16, FaceMath.pi * 1.85, C.darkGreen)
-        tri(50, 32, 36, 22, 38, 36, C.red)
-        tri(50, 32, 64, 22, 62, 36, C.red)
-        line(50, 32, 42, 50, 2.6, C.red)
-        line(50, 32, 58, 50, 2.6, C.red)
-        circle(50, 32, 3, C.darkRed)
-        for (x, y) in [(Float(46), Float(28)), (50, 26), (54, 28)] { circle(x, y, 1.8, C.red) }
+        snowfall(22)
+        for _ in 0..<10 { star(next() * 100, 30 + next() * 90, 1.5, C.alpha(C.gold, 110), points: 4, inner: 0.3) }
+        // A fir branch across the top; the ribbons hang from a bow on it
+        sprig(-6, 16, 106, 12, 1.8)
+        line(50, 20, 31, 48, 2.2, C.red)
+        line(50, 20, 69, 48, 2.2, C.red)
+        // The bells, swinging out to the sides
+        bell(31, 48, 0.22, size: 0.95)
+        bell(69, 48, -0.22, size: 0.95)
+        // Holly and the bow
+        leaf(50, 18, 15, FaceMath.pi * 1.1, C.green)
+        leaf(50, 18, 15, FaceMath.pi * 1.9, C.darkGreen)
+        tri(50, 20, 38, 13, 39, 26, C.red)
+        tri(50, 20, 62, 13, 61, 26, C.red)
+        tri(50, 20, 40, 17, 41, 23, C.darkRed)
+        tri(50, 20, 60, 17, 59, 23, C.darkRed)
+        circle(50, 20, 2.8, C.darkRed)
+        for (x, y) in [(Float(46), Float(15)), (49.5, 13.5), (53, 15)] { circle(x, y, 1.7, FaceColor(rgb: 0xE0283E)) }
     }
 
-    /// A bell hanging from (x, y), tilted
-    @inline(never) mutating func bell(_ x: Float, _ y: Float, _ tilt: Float) {
+    /// A bell hanging from its loop at (x, y), swung by `tilt` (radians; positive swings its mouth to the left)
+    @inline(never) mutating func bell(_ x: Float, _ y: Float, _ tilt: Float, size k: Float = 1) {
         let c = FaceMath.cos(tilt), s = FaceMath.sin(tilt)
-        func p(_ dx: Float, _ dy: Float) -> (Float, Float) { (x + dx * c - dy * s, y + dx * s + dy * c) }
-        let outline: [(Float, Float)] = [p(0, 0), p(8, 4), p(10, 22), p(17, 38), p(-17, 38), p(-10, 22), p(-8, 4)]
-        poly(outline, C.gold)
-        poly([p(0, 0), p(8, 4), p(10, 22), p(17, 38), p(4, 38)], C.alpha(C.darkGold, 200))
-        let rim = p(0, 38)
-        ellipse(rim.0, rim.1, 17, 3, C.darkGold)
-        let clapper = p(0, 42)
-        circle(clapper.0, clapper.1, 3.4, C.darkGold)
-        let shine = p(-5, 18)
-        ellipse(shine.0, shine.1, 1.6, 8, C.alpha(C.white, 120))
+        func p(_ dx: Float, _ dy: Float) -> (Float, Float) {
+            (x + (dx * c - dy * s) * k, y + (dx * s + dy * c) * k)
+        }
+        // The loop, the clapper peeking out under the mouth
+        let loop = p(0, 1.5)
+        circle(loop.0, loop.1, 2.6 * k, C.darkGold)
+        let clapper = p(0, 41)
+        circle(clapper.0, clapper.1, 3.6 * k, C.darkGold)
+        // The crown (a dome), then the flaring body in bands (each band a convex piece), right side in shade
+        let crown = p(0, 11)
+        circle(crown.0, crown.1, 8.5 * k, C.gold)
+        let rows: [(Float, Float)] = [(11, 8.5), (20, 9.6), (27, 11.6), (32, 14.6), (36, 18.5)]
+        for i in 0..<(rows.count - 1) {
+            let (y0, w0) = rows[i], (y1, w1) = rows[i + 1]
+            poly([p(-w0, y0), p(w0, y0), p(w1, y1), p(-w1, y1)], C.gold)
+            poly([p(w0 * 0.4, y0), p(w0, y0), p(w1, y1), p(w1 * 0.45, y1)], FaceColor(rgb: 0xDCA63C))
+        }
+        // The rim: a band across the mouth
+        var rim: [(Float, Float)] = []
+        for i in 0...10 {
+            let a = Float(i) * FaceMath.pi / 10
+            rim.append(p(-19.5 * FaceMath.cos(a), 36 + 3.4 * FaceMath.sin(a)))
+        }
+        rim.append(p(19.5, 34))
+        rim.append(p(-19.5, 34))
+        poly(rim, C.darkGold)
+        let rimL = p(-18.5, 34.5), rimR = p(18.5, 34.5)
+        line(rimL.0, rimL.1, rimR.0, rimR.1, 1.2 * k, C.alpha(FaceColor(rgb: 0xFFE08A), 220))
+        // A shine on the left
+        let a = p(-5.5, 13), b = p(-7.5, 30)
+        line(a.0, a.1, b.0, b.1, 2.2 * k, C.alpha(C.white, 140))
     }
 
     /// 20: A wreath with cones and a red bow on a wooden front door
