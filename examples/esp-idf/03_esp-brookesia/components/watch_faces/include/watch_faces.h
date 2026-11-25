@@ -45,6 +45,13 @@ void books_app_hide(void);
 void paint_app_show(lv_obj_t *screen);
 void paint_app_hide(void);
 
+/* The Julekalender app's run()/back()/close() (brookesia_app_advent), with the LVGL lock held: an advent calendar on
+ * `screen`. advent_app_back() goes from an open door back to the calendar; false when the calendar already shows (the
+ * app should close). */
+void advent_app_show(lv_obj_t *screen);
+bool advent_app_back(void);
+void advent_app_hide(void);
+
 /* The night clock (big red time and the date, drawn for a watch lying on its side; its own screen): `side` 1 = lying
  * on its left side, -1 = on its right side. With the LVGL lock held. Hiding brings back the screen shown before. */
 void night_clock_show(int32_t side);

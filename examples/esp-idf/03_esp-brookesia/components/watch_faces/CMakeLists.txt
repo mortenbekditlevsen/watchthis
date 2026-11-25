@@ -25,6 +25,8 @@ target_sources(${COMPONENT_LIB}
     ${KIT}/Weather.swift
     ${KIT}/Book.swift
     ${KIT}/Paint.swift
+    ${KIT}/Advent.swift
+    ${KIT}/AdventScenes.swift
     LV.swift
     FaceRenderer.swift
     ImageWorker.swift
@@ -40,4 +42,5 @@ target_sources(${COMPONENT_LIB}
     CalculatorApp.swift
     BooksApp.swift
     PaintApp.swift
+    AdventApp.swift
 )

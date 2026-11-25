@@ -114,14 +114,12 @@ private enum PaintDecoder {
 
         if let canvasDsc, UnsafeRawPointer(canvasDsc) == dsc.pointee.src {
             guard let image else { return LV_RESULT_INVALID }
-            image.pixels.withUnsafeBufferPointer { px in
-                for r in 0..<rows {
-                    let row = (y + r) / scale * image.stride
-                    for c in 0..<cols {
-                        let x = (x1 + c) / scale
-                        let b = px[row + x / 2]
-                        out[r * cols + c] = colors[Int(x & 1 == 0 ? b >> 4 : b & 0xF)]
-                    }
+            for r in 0..<rows {
+                let row = (y + r) / scale * image.stride
+                for c in 0..<cols {
+                    let x = (x1 + c) / scale
+                    let b = image.byte(row + x / 2)
+                    out[r * cols + c] = colors[Int(x & 1 == 0 ? b >> 4 : b & 0xF)]
                 }
             }
         } else if let t = thumbnails.first(where: { UnsafeRawPointer($0.dsc) == dsc.pointee.src }) {
@@ -720,23 +718,73 @@ private final class PaintUI {
 
 nonisolated(unsafe) private var paintUI: PaintUI?
 
+// Starting needs ~26 KB for the drawing (in 1.6 KB bands), ~6.5 KB in one piece for drawing it, and some for the
+// objects. Right after the app opens, the watch face's memory and (while charging) background BLE's are still being
+// freed: until there's enough, "Vent lidt…" and another look a little later.
+private let startFreeBytes = 40 * 1024
+private let startBlockBytes = 8 * 1024
+private let startTries = 20             // 400 ms apart: 8 s
+
+nonisolated(unsafe) private var startTimer: OpaquePointer?
+nonisolated(unsafe) private var startScreen: LVObj?
+nonisolated(unsafe) private var startLabel: LVObj?
+nonisolated(unsafe) private var startTriesLeft = 0
+
+private func hasRoomToStart() -> Bool {
+    let free = heap_caps_get_free_size(UInt32(MALLOC_CAP_INTERNAL))
+    let largest = heap_caps_get_largest_free_block(UInt32(MALLOC_CAP_INTERNAL))
+    return free >= startFreeBytes && largest >= startBlockBytes
+}
+
+private func stopWaiting() {
+    if let startTimer { lv_timer_delete(startTimer) }
+    startTimer = nil
+    if let startLabel { lv_obj_delete(startLabel) }
+    startLabel = nil
+}
+
+private func tryStart() {
+    guard let screen = startScreen else { return }
+    let free = heap_caps_get_free_size(UInt32(MALLOC_CAP_INTERNAL))
+    let largest = heap_caps_get_largest_free_block(UInt32(MALLOC_CAP_INTERNAL))
+    if hasRoomToStart() {
+        print("paint: starting with \(free / 1024) KB free, largest block \(largest / 1024) KB")
+        stopWaiting()
+        start(on: screen)
+        return
+    }
+    startTriesLeft -= 1
+    if startTriesLeft > 0 {
+        if let startLabel { lvSetText(startLabel, "Vent lidt…") }
+        return
+    }
+    print("paint: not enough memory: \(free / 1024) KB free, largest block \(largest / 1024) KB")
+    if let startTimer { lv_timer_delete(startTimer) }
+    startTimer = nil
+    if let startLabel { lvSetText(startLabel, "Der er ikke hukommelse nok lige nu. Luk appen og prøv igen om lidt.") }
+}
+
 @_cdecl("paint_app_show")
 public func paint_app_show(_ screen: OpaquePointer?) {
     guard let screen else { return }
-    // ~26 KB for the drawing in one piece (undo copies are small, and loading works in place)
-    let largest = heap_caps_get_largest_free_block(UInt32(MALLOC_CAP_INTERNAL))
-    print("paint: free heap \(heap_caps_get_free_size(UInt32(MALLOC_CAP_INTERNAL)) / 1024) KB, largest block " +
-          "\(largest / 1024) KB")
-    guard largest >= 28 * 1024 else {
-        let l = lv_label_create(screen)!
-        lv_obj_set_width(l, 300)
-        lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_WRAP)
-        lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, partMain)
-        lv_obj_set_style_text_font(l, wf_builtin_font(22), partMain)
-        lvSetText(l, "Der er ikke hukommelse nok lige nu. Prøv igen, når uret ikke lader og Synk er lukket.")
-        lv_obj_center(l)
+    startScreen = screen
+    if hasRoomToStart() {
+        start(on: screen)
         return
     }
+    let l = lv_label_create(screen)!
+    lv_obj_set_width(l, 300)
+    lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_WRAP)
+    lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, partMain)
+    lv_obj_set_style_text_font(l, wf_builtin_font(22), partMain)
+    lvSetText(l, "Vent lidt…")
+    lv_obj_center(l)
+    startLabel = l
+    startTriesLeft = startTries
+    startTimer = lv_timer_create({ _ in tryStart() }, 400, nil)
+}
+
+private func start(on screen: LVObj) {
     let image = PaintImage()
     if let bytes = readFile(currentPath, maxSize: 64 * 1024) {
         do throws(PaintFileError) {
@@ -748,6 +796,10 @@ public func paint_app_show(_ screen: OpaquePointer?) {
 
 @_cdecl("paint_app_hide")
 public func paint_app_hide() {
+    if let startTimer { lv_timer_delete(startTimer) }
+    startTimer = nil
+    startLabel = nil        // Deleted with the screen
+    startScreen = nil
     // Saved and freed now; the objects are deleted by the app framework after this
     paintUI?.stop()
     paintUI = nil

@@ -1,5 +1,6 @@
 // Drawings for the watch's Tegn app: 16 colours (PaintPalette), 4 bits a pixel, at half the screen's resolution
-// (205 x 251; shown at twice that). A whole screen of RGB565 wouldn't fit in the watch's RAM; this is ~26 KB.
+// (205 x 251; shown at twice that). A whole screen of RGB565 wouldn't fit in the watch's RAM; this is ~26 KB, kept in
+// bands of 16 rows (~1.6 KB each): the watch's free memory is fragmented, and 26 KB in one piece often isn't there.
 // Saved run-length encoded (mostly one colour, so a drawing takes a few KB):
 //
 //   "WPN1" | width u16 | height u16 | runs: { count u8 (1...255) | byte (two pixels: high nibble first) }
@@ -54,30 +55,57 @@ public final class PaintImage {
     public let width: Int
     public let height: Int
     public let stride: Int
-    /// Two pixels a byte, the left one in the high nibble
-    public private(set) var pixels: [UInt8]
+    /// Rows a band holds
+    public static let bandRows = 16
+    /// Two pixels a byte, the left one in the high nibble; `bandRows` rows a band
+    private var bands: [[UInt8]] = []
+    private let bandBytes: Int
+    /// All the pixels' bytes
+    public let byteCount: Int
 
     public init(width: Int = canvasWidth, height: Int = canvasHeight, color: UInt8 = 0) {
         self.width = width
         self.height = height
         stride = (width + 1) / 2
-        pixels = [UInt8](repeating: color & 0xF | (color & 0xF) << 4, count: stride * height)
+        bandBytes = stride * Self.bandRows
+        byteCount = stride * height
+        let fill = color & 0xF | (color & 0xF) << 4
+        var y = 0
+        while y < height {
+            bands.append([UInt8](repeating: fill, count: stride * min(Self.bandRows, height - y)))
+            y += Self.bandRows
+        }
     }
 
+    /// All the pixels' bytes in one array (a copy: for tests and small images)
+    public var pixels: [UInt8] {
+        var all: [UInt8] = []
+        for band in bands { all += band }
+        return all
+    }
+
+    /// Byte `i` of all the pixels (row by row)
+    @inline(__always)
+    public func byte(_ i: Int) -> UInt8 { bands[i / bandBytes][i % bandBytes] }
+
+    @inline(__always)
+    private func setByte(_ i: Int, _ b: UInt8) { bands[i / bandBytes][i % bandBytes] = b }
+
     public func pixel(_ x: Int, _ y: Int) -> UInt8 {
-        let b = pixels[y * stride + x / 2]
+        let b = byte(y * stride + x / 2)
         return x & 1 == 0 ? b >> 4 : b & 0xF
     }
 
     public func setPixel(_ x: Int, _ y: Int, _ c: UInt8) {
         guard x >= 0, y >= 0, x < width, y < height else { return }
         let i = y * stride + x / 2
-        pixels[i] = x & 1 == 0 ? (pixels[i] & 0x0F) | c << 4 : (pixels[i] & 0xF0) | c
+        let b = byte(i)
+        setByte(i, x & 1 == 0 ? (b & 0x0F) | c << 4 : (b & 0xF0) | c)
     }
 
     public func clear(_ c: UInt8 = 0) {
         let b = c & 0xF | (c & 0xF) << 4
-        for i in 0..<pixels.count { pixels[i] = b }
+        for i in 0..<byteCount { setByte(i, b) }
     }
 
     /// A round dot of radius `r` (0: one pixel)
@@ -159,20 +187,42 @@ public final class PaintImage {
         guard sink(Self.magic + Self.le16(width) + Self.le16(height)) else { return false }
         var chunk: [UInt8] = []
         chunk.reserveCapacity(256)
-        var i = 0
-        while i < pixels.count {
-            let b = pixels[i]
-            var n = 1
-            while n < 255 && i + n < pixels.count && pixels[i + n] == b { n += 1 }
+        let ok = forEachRun { n, b in
             chunk.append(UInt8(n))
             chunk.append(b)
-            i += n
-            if chunk.count >= 254 {
-                guard sink(chunk) else { return false }
-                chunk.removeAll(keepingCapacity: true)
-            }
+            guard chunk.count >= 254 else { return true }
+            defer { chunk.removeAll(keepingCapacity: true) }
+            return sink(chunk)
         }
-        return chunk.isEmpty || sink(chunk)
+        return ok && (chunk.isEmpty || sink(chunk))
+    }
+
+    /// The runs of equal bytes (at most 255 long), in order; stops when `body` returns false
+    private func forEachRun(_ body: (Int, UInt8) -> Bool) -> Bool {
+        var i = 0
+        while i < byteCount {
+            let b = byte(i)
+            var n = 1
+            while n < 255 && i + n < byteCount && byte(i + n) == b { n += 1 }
+            guard body(n, b) else { return false }
+            i += n
+        }
+        return true
+    }
+
+    /// The runs in `bytes` from `start` into the pixels, if they make exactly the pixels' bytes (else unchanged)
+    private func decodeRuns(_ bytes: [UInt8], from start: Int) -> Bool {
+        guard PaintRLE.decodedCount(bytes, from: start) == byteCount else { return false }
+        var o = 0
+        var i = start
+        while i + 1 < bytes.count && o < byteCount {
+            let n = Int(bytes[i])
+            guard n > 0 else { return false }
+            for k in 0..<n { setByte(o + k, bytes[i + 1]) }
+            o += n
+            i += 2
+        }
+        return o == byteCount
     }
 
     public convenience init(decoding bytes: [UInt8]) throws(PaintFileError) {
@@ -180,33 +230,45 @@ public final class PaintImage {
         let w = Int(bytes[4]) | Int(bytes[5]) << 8, h = Int(bytes[6]) | Int(bytes[7]) << 8
         guard w > 0, h > 0, w <= 1024, h <= 1024 else { throw .corrupt }
         self.init(width: w, height: h)
-        guard PaintRLE.decode(bytes, from: 8, into: &pixels) else { throw .corrupt }
+        guard decodeRuns(bytes, from: 8) else { throw .corrupt }
     }
 
     /// Loads a drawing file of this size into these pixels (no second copy: the watch has room for one).
-    /// On failure the pixels are cleared.
+    /// On failure the pixels are unchanged.
     public func load(_ bytes: [UInt8]) throws(PaintFileError) {
         guard bytes.count >= 8, bytes.prefix(4).elementsEqual(Self.magic) else { throw .notADrawing }
         let w = Int(bytes[4]) | Int(bytes[5]) << 8, h = Int(bytes[6]) | Int(bytes[7]) << 8
         guard w == width, h == height else { throw .corrupt }
-        guard PaintRLE.decode(bytes, from: 8, into: &pixels) else {
-            clear()
-            throw .corrupt
-        }
+        guard decodeRuns(bytes, from: 8) else { throw .corrupt }
     }
 
     /// Restores pixels saved with `snapshot()`, in place
     public func restore(_ snapshot: [UInt8]) -> Bool {
-        let before = PaintRLE.decodedCount(snapshot, from: 0)
-        guard before == pixels.count else { return false }
-        return PaintRLE.decode(snapshot, from: 0, into: &pixels)
+        decodeRuns(snapshot, from: 0)
     }
 
-    /// The pixels run-length encoded (for undo)
-    public func snapshot() -> [UInt8] { PaintRLE.encode(pixels) }
+    /// The pixels run-length encoded (for undo): one allocation of the right size (growing an array would briefly
+    /// need twice the memory)
+    public func snapshot() -> [UInt8] {
+        var out: [UInt8] = []
+        out.reserveCapacity(snapshotSize)
+        _ = forEachRun { n, b in
+            out.append(UInt8(n))
+            out.append(b)
+            return true
+        }
+        return out
+    }
 
     /// How big `snapshot()` would be
-    public var snapshotSize: Int { PaintRLE.encodedSize(pixels) }
+    public var snapshotSize: Int {
+        var size = 0
+        _ = forEachRun { _, _ in
+            size += 2
+            return true
+        }
+        return size
+    }
 
     /// Half the size each way: of each 2 x 2, the first pixel that isn't the paper (so thin lines stay)
     public func thumbnail() -> PaintImage {
@@ -281,20 +343,6 @@ public enum PaintRLE {
             i += n
         }
         return size
-    }
-
-    /// The runs in `bytes` from `start` into `out` (overwriting it, all of it); false if they don't add up
-    public static func decode(_ bytes: [UInt8], from start: Int, into out: inout [UInt8]) -> Bool {
-        var o = 0
-        var i = start
-        while i + 1 < bytes.count && o < out.count {
-            let n = Int(bytes[i])
-            guard n > 0, o + n <= out.count else { return false }
-            for k in 0..<n { out[o + k] = bytes[i + 1] }
-            o += n
-            i += 2
-        }
-        return o == out.count
     }
 
     /// How many bytes the runs make

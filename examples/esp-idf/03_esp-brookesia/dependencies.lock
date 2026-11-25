@@ -232,6 +232,6 @@ direct_dependencies:
 - lvgl/lvgl
 - waveshare/esp32_c6_touch_amoled_2_06
 - waveshare/esp_lcd_sh8601
-manifest_hash: c72d1ab8aabf83efec9865a70c21b291b85563d78bd0b4b78ee72f32d868d203
+manifest_hash: dd2711927d481adf9cd424020b0b0ff5296d90000ec16f6fd1e164e3a2c79840
 target: esp32c6
 version: 2.0.0

@@ -44,32 +44,37 @@ final class WeatherIconDrawing {
         var area = lv_area_t()
         lv_obj_get_coords(obj, &area)
         let k = Float(area.x2 - area.x1 + 1) / 100
-        func x(_ v: Float) -> Int32 { area.x1 + Int32((v * k).rounded()) }
-        func y(_ v: Float) -> Int32 { area.y1 + Int32((v * k).rounded()) }
         for shape in shapes {
-            switch shape {
-            case .circle(let cx, let cy, let r, let color):
-                fillRect(layer, x(cx - r), y(cy - r), x(cx + r), y(cy + r), radius: wf_radius_circle(), color)
-            case .roundRect(let rx, let ry, let w, let h, let r, let color):
-                fillRect(layer, x(rx), y(ry), x(rx + w), y(ry + h), radius: Int32((r * k).rounded()), color)
-            case .line(let x1, let y1, let x2, let y2, let width, let color):
-                var dsc = lv_draw_line_dsc_t()
-                lv_draw_line_dsc_init(&dsc)
-                dsc.p1 = wf_point(x(x1), y(y1))
-                dsc.p2 = wf_point(x(x2), y(y2))
-                dsc.width = max(1, Int32((width * k).rounded()))
-                dsc.color = lvColor(color)
-                dsc.opa = color.a
-                dsc.round_start = 1
-                dsc.round_end = 1
-                lv_draw_line(layer, &dsc)
-            case .triangle(let x1, let y1, let x2, let y2, let x3, let y3, let color):
-                wf_draw_triangle(layer, x(x1), y(y1), x(x2), y(y2), x(x3), y(y3), lvColor(color), color.a)
-            }
+            WeatherIconDrawing.draw(shape, layer: layer, x0: area.x1, y0: area.y1, scale: k)
         }
     }
 
-    private func fillRect(_ layer: UnsafeMutablePointer<lv_layer_t>, _ x1: Int32, _ y1: Int32, _ x2: Int32, _ y2: Int32,
+    /// Draws a shape (also of the Julekalender's pictures) with (0, 0) at (x0, y0), `scale` pixels per unit
+    static func draw(_ shape: IconShape, layer: UnsafeMutablePointer<lv_layer_t>, x0: Int32, y0: Int32, scale k: Float) {
+        func x(_ v: Float) -> Int32 { x0 + Int32((v * k).rounded()) }
+        func y(_ v: Float) -> Int32 { y0 + Int32((v * k).rounded()) }
+        switch shape {
+        case .circle(let cx, let cy, let r, let color):
+            fillRect(layer, x(cx - r), y(cy - r), x(cx + r), y(cy + r), radius: wf_radius_circle(), color)
+        case .roundRect(let rx, let ry, let w, let h, let r, let color):
+            fillRect(layer, x(rx), y(ry), x(rx + w), y(ry + h), radius: Int32((r * k).rounded()), color)
+        case .line(let x1, let y1, let x2, let y2, let width, let color):
+            var dsc = lv_draw_line_dsc_t()
+            lv_draw_line_dsc_init(&dsc)
+            dsc.p1 = wf_point(x(x1), y(y1))
+            dsc.p2 = wf_point(x(x2), y(y2))
+            dsc.width = max(1, Int32((width * k).rounded()))
+            dsc.color = lvColor(color)
+            dsc.opa = color.a
+            dsc.round_start = 1
+            dsc.round_end = 1
+            lv_draw_line(layer, &dsc)
+        case .triangle(let x1, let y1, let x2, let y2, let x3, let y3, let color):
+            wf_draw_triangle(layer, x(x1), y(y1), x(x2), y(y2), x(x3), y(y3), lvColor(color), color.a)
+        }
+    }
+
+    private static func fillRect(_ layer: UnsafeMutablePointer<lv_layer_t>, _ x1: Int32, _ y1: Int32, _ x2: Int32, _ y2: Int32,
                           radius: Int32, _ color: FaceColor) {
         var dsc = lv_draw_rect_dsc_t()
         lv_draw_rect_dsc_init(&dsc)

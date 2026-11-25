@@ -15,7 +15,7 @@
 #include "cats_jpeg_decoder.hpp"
 #include "esp_brookesia_app_cats.hpp"
 
-#define APP_NAME "Katte"
+#define APP_NAME "Billeder"
 
 constexpr int MAX_PHOTOS = 512;
 
@@ -25,7 +25,7 @@ constexpr int32_t SWIPE_MIN_MOVE = 40;
 
 using namespace esp_brookesia::systems;
 
-LV_IMG_DECLARE(esp_brookesia_app_icon_launcher_cats_112_112);
+LV_IMG_DECLARE(esp_brookesia_app_icon_launcher_photos_112_112);
 
 namespace {
 
@@ -58,7 +58,7 @@ Cats *Cats::requestInstance()
 }
 
 Cats::Cats():
-    App(APP_NAME, &esp_brookesia_app_icon_launcher_cats_112_112, true, false, false)
+    App(APP_NAME, &esp_brookesia_app_icon_launcher_photos_112_112, true, false, false)
 {
 }
 

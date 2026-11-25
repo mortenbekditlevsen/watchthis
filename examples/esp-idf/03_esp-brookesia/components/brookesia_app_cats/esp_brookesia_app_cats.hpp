@@ -10,8 +10,8 @@
 namespace esp_brookesia::apps {
 
 /**
- * @brief Full-screen photo browser for the JPEGs in the file store (components/file_store; preloaded with the
- *        cats in images/), decoded while drawing by cats_jpeg_decoder. Swipe left/right to browse, tap to show/hide
+ * @brief "Billeder": a full-screen photo browser for the JPEGs in the file store (components/file_store, uploaded
+ *        from the phone), decoded while drawing by cats_jpeg_decoder. Swipe left/right to browse, tap to show/hide
  *        the position.
  */
 class Cats: public systems::phone::App {

@@ -6,6 +6,8 @@
 //   swift run wfce dump <file.wf>                      decode a face file and print it
 //   swift run wfce render <id|file.wf> <out.png> [HH:MM:SS]   draw a face as the phone preview does
 //   swift run wfce font <PostScript name> <size> <characters> <out.fnt>   rasterize a font subset (LVGL binfont)
+//   swift run wfce advent <out.png> [door]             the Julekalender's pictures (all, or one door)
+//   swift run wfce launcher-icon <advent|photos> <out.c>   an app's launcher icon as an LVGL image in C
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -102,7 +104,40 @@ case "font":
     let font = FaceFonts.rasterize(spec.ctFont(), glyphs: args[3])
     try Data(font.encoded()).write(to: URL(fileURLWithPath: args[4]))
     print("\(font.glyphs.count) glyphs, \(font.encoded().count) bytes; asset id \(spec.assetID(glyphs: args[3]))")
+case "advent":
+    // The Julekalender's pictures: all 24 on one sheet, or one door at the watch's size
+    guard args.count == 2 || args.count == 3 else { fail("usage: wfce advent <out.png> [door]") }
+    let doors = args.count == 3 ? [Int(args[2]) ?? 1] : Array(1...24)
+    let columns = min(6, doors.count), scale: CGFloat = args.count == 3 ? 3.3 : 2
+    let cellW = Int(110 * scale), cellH = Int(130 * scale)
+    let rows = (doors.count + columns - 1) / columns
+    let c = CGContext(data: nil, width: cellW * columns, height: cellH * rows, bitsPerComponent: 8, bytesPerRow: 0,
+                      space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue)!
+    c.setFillColor(CGColor(gray: 0, alpha: 1))
+    c.fill(CGRect(x: 0, y: 0, width: cellW * columns, height: cellH * rows))
+    c.translateBy(x: 0, y: CGFloat(cellH * rows))
+    c.scaleBy(x: 1, y: -1)
+    for (i, door) in doors.enumerated() {
+        let rect = CGRect(x: CGFloat(i % columns * cellW) + 5 * scale, y: CGFloat(i / columns * cellH) + 5 * scale,
+                          width: 100 * scale, height: 120 * scale)
+        c.saveGState()
+        c.clip(to: rect)
+        WeatherIconPainter.draw(AdventScene.shapes(door), in: rect, context: c)
+        c.restoreGState()
+    }
+    let destination = CGImageDestinationCreateWithURL(URL(fileURLWithPath: args[1]) as CFURL, UTType.png.identifier as CFString, 1, nil)!
+    CGImageDestinationAddImage(destination, c.makeImage()!, nil)
+    guard CGImageDestinationFinalize(destination) else { fail("could not write \(args[1])") }
+    let counts = doors.map { AdventScene.shapes($0).count }
+    print("shapes per picture: \(counts), max \(counts.max() ?? 0)")
+case "launcher-icon":
+    // e.g. swift run wfce launcher-icon advent ../../brookesia_app_advent/assets/esp_brookesia_app_icon_launcher_advent_112_112.c
+    guard args.count == 3, let pixels = LauncherIcon.pixels(args[1]) else {
+        fail("usage: wfce launcher-icon <\(LauncherIcon.names.joined(separator: "|"))> <out.c>")
+    }
+    let symbol = URL(fileURLWithPath: args[2]).deletingPathExtension().lastPathComponent
+    try LauncherIcon.cSource(args[1], symbol: symbol, pixels: pixels).write(toFile: args[2], atomically: true, encoding: .utf8)
 default:
     fail("usage: wfce list | builtin <id> <out.wf> | dump <file.wf> | render <id|file.wf> <out.png> [HH:MM:SS] | "
-         + "font <name> <size> <chars> <out.fnt>")
+         + "font <name> <size> <chars> <out.fnt> | advent <out.png> [door] | launcher-icon <name> <out.c>")
 }

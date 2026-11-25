@@ -213,7 +213,6 @@ Notes:
   characters. Danish letters (ÆØÅæøå) are supported.
 - **List:** pages are sorted by id. Request `start = 0`, then `start += count` until `start >= total` (or
   `count == 0`). A page holds as many entries as fit in ~400 bytes.
-- **FileDelete** of a preloaded cat photo works like any other photo (ids `cat_01` … `cat_50`).
 
 ## 8. Uploading a file
 
@@ -263,7 +262,8 @@ ffmpeg -i in.mp3 -ac 1 -b:a 64k out.mp3
 lame -m m -b 64 in.mp3 out.mp3        # alternative
 ```
 
-More room: delete preloaded cat photos you don't need (ids `cat_01` … `cat_50`, ~70 KB each, 3.6 MB in all).
+Older firmware preloaded 50 cat photos (ids `cat_01` … `cat_50`, ~70 KB each, 3.6 MB in all). Watches that still
+have them get the room back by deleting them (FileDelete), or with `idf.py store-flash` (which resets all files).
 
 ## 9. Typical session
 
