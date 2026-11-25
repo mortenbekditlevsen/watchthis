@@ -96,6 +96,12 @@ private final class AdventUI {
     /// Frames during the swing (logged: how smooth it was)
     var swingFrames = 0
     var sparkles = Sparkles(seed: 1)
+    /// The glitter as drawn this frame (worked out once per frame: there's no FPU, so no float maths per redraw)
+    var glints: [Glint] = []
+    /// The open door's picture in screen pixels, made once
+    var picture = PixelPicture()
+    /// LVGL's refresh timer runs faster while the door moves
+    var fastRefresh = false
     var sprinkleTime: Float = 0
     var animTimer: OpaquePointer?
     var lastTick: UInt32 = 0
@@ -385,8 +391,10 @@ private final class AdventUI {
         var a = lv_area_t()
         lv_obj_get_coords(cells[index], &a)
         let k = Float(cellW) / AdventScene.width
-        var sink = LayerShapeSink(layer: layer, x0: a.x1, y0: a.y1 + (cellH - Int32(AdventScene.height * k)) / 2, scale: k)
-        AdventScene.draw(door, into: &sink)
+        // (Made for the draw only: small chunks, freed right after)
+        var thumbnail = PixelPicture(x0: a.x1, y0: a.y1 + (cellH - Int32(AdventScene.height * k)) / 2, scale: k)
+        AdventScene.draw(door, into: &thumbnail)
+        thumbnail.draw(layer)
         // The open door, seen from the side
         let shade = AdventDoor.shade(Look.doorColor(door), angle: 1.2)
         wf_draw_triangle(layer, a.x1, a.y1 - 1, a.x1 + 9, a.y1 - 4, a.x1 + 9, a.y2 + 4, lvColor(shade), 255)
@@ -434,6 +442,11 @@ private final class AdventUI {
         lv_obj_add_event_cb(scene, { e in adventUI?.drawScene(e) }, LV_EVENT_DRAW_MAIN, nil)
         lv_obj_add_event_cb(scene, { _ in adventUI?.sceneTapped() }, LV_EVENT_CLICKED, nil)
         sceneObj = scene
+        lv_obj_update_layout(scene)
+        var origin = lv_area_t()
+        lv_obj_get_coords(scene, &origin)
+        picture = PixelPicture(x0: origin.x1, y0: origin.y1, scale: sceneScale)
+        AdventScene.draw(door, into: &picture)
 
         let date = lv_label_create(page)!
         lv_obj_set_style_text_font(date, wf_builtin_font(18), partMain)
@@ -509,6 +522,8 @@ private final class AdventUI {
         dateLabel = nil
         closeButton = nil
         sparkles = Sparkles(seed: 1)
+        glints = []
+        picture = PixelPicture()
         lv_obj_remove_flag(gridPage, LV_OBJ_FLAG_HIDDEN)
         refreshGrid()
         return true
@@ -560,12 +575,21 @@ private final class AdventUI {
     func startTimer() {
         guard animTimer == nil else { return }
         lastTick = lv_tick_get()
-        animTimer = lv_timer_create({ _ in adventUI?.tick() }, 20, nil)
+        animTimer = lv_timer_create({ _ in adventUI?.tick() }, 16, nil)
+        // Redraw as often as the frames come (LVGL's default is every 33 ms) while something moves
+        if let refresh = lv_display_get_refr_timer(lv_display_get_default()) {
+            lv_timer_set_period(refresh, 16)
+            fastRefresh = true
+        }
     }
 
     func stopTimer() {
         if let animTimer { lv_timer_delete(animTimer) }
         animTimer = nil
+        if fastRefresh, let refresh = lv_display_get_refr_timer(lv_display_get_default()) {
+            lv_timer_set_period(refresh, UInt32(LV_DEF_REFR_PERIOD))
+        }
+        fastRefresh = false
     }
 
     static let wiggleTime: Float = 0.5
@@ -636,6 +660,7 @@ private final class AdventUI {
             }
         }
         sparkles.step(dt)
+        glints = sparkles.particles.compactMap { Glint($0) }
 
         if angle != oldAngle { invalidateDoor() }
         invalidateSparkles()
@@ -668,8 +693,7 @@ private final class AdventUI {
                 return
             }
         }
-        var sink = LayerShapeSink(layer: layer, x0: a.x1, y0: a.y1, scale: sceneScale)
-        AdventScene.draw(door, into: &sink)
+        picture.draw(layer)
         // The door's shadow on the picture, just right of its edge (stronger the more it still faces us)
         if let edge {
             var dsc = lv_draw_rect_dsc_t()
@@ -754,39 +778,29 @@ private final class AdventUI {
     }
 
     func drawSparkles(_ layer: UnsafeMutablePointer<lv_layer_t>) {
-        var dot = lv_draw_rect_dsc_t()
-        lv_draw_rect_dsc_init(&dot)
-        dot.radius = wf_radius_circle()
-        for s in sparkles.particles {
-            let opa = s.opacity
-            guard opa > 8 else { continue }
-            let x = Int32(s.x), y = Int32(s.y)
-            if s.isStar {
-                // A four-pointed glint: two thin lines and a bright middle
-                let r = Int32(s.size)
-                var d = lv_draw_line_dsc_t()
-                lv_draw_line_dsc_init(&d)
-                d.width = 2
-                d.color = lvColor(s.color)
-                d.opa = opa
-                d.round_start = 1
-                d.round_end = 1
-                d.p1 = wf_point(x - r, y)
-                d.p2 = wf_point(x + r, y)
-                lv_draw_line(layer, &d)
-                d.p1 = wf_point(x, y - r)
-                d.p2 = wf_point(x, y + r)
-                lv_draw_line(layer, &d)
-                dot.bg_color = lv_color_white()
-                dot.bg_opa = opa
-                var a = lv_area_t(x1: x - 2, y1: y - 2, x2: x + 2, y2: y + 2)
-                lv_draw_rect(layer, &dot, &a)
+        let clip = layer.pointee._clip_area
+        var dsc = lv_draw_rect_dsc_t()
+        lv_draw_rect_dsc_init(&dsc)
+        for g in glints {
+            let x = Int32(g.x), y = Int32(g.y), r = Int32(g.r)
+            guard x + r >= clip.x1 && x - r <= clip.x2 && y + r >= clip.y1 && y - r <= clip.y2 else { continue }
+            dsc.bg_color = g.color
+            dsc.bg_opa = g.opa
+            if g.isStar {
+                // A four-pointed glint: two thin bars (plain fills, cheap) and a bright middle
+                dsc.radius = 0
+                var h = lv_area_t(x1: x - r, y1: y - 1, x2: x + r, y2: y)
+                lv_draw_rect(layer, &dsc, &h)
+                var v = lv_area_t(x1: x - 1, y1: y - r, x2: x, y2: y + r)
+                lv_draw_rect(layer, &dsc, &v)
+                dsc.bg_color = lv_color_white()
+                dsc.radius = wf_radius_circle()
+                var c = lv_area_t(x1: x - 2, y1: y - 2, x2: x + 2, y2: y + 2)
+                lv_draw_rect(layer, &dsc, &c)
             } else {
-                let r = Int32(s.size / 2)
-                dot.bg_color = lvColor(s.color)
-                dot.bg_opa = opa
+                dsc.radius = wf_radius_circle()
                 var a = lv_area_t(x1: x - r, y1: y - r, x2: x + r, y2: y + r)
-                lv_draw_rect(layer, &dot, &a)
+                lv_draw_rect(layer, &dsc, &a)
             }
         }
     }
@@ -818,13 +832,13 @@ private final class AdventUI {
     func invalidateSparkles() {
         guard let overlay else { return }
         var tiles = [UInt16](repeating: 0, count: tileRows)
-        for s in sparkles.particles {
-            let r = s.size + 2
-            let c0 = max(0, min(tileColumns - 1, Int((s.x - r) / Float(tileW))))
-            let c1 = max(0, min(tileColumns - 1, Int((s.x + r) / Float(tileW))))
-            let r0 = max(0, min(tileRows - 1, Int((s.y - r) / Float(tileH))))
-            let r1 = max(0, min(tileRows - 1, Int((s.y + r) / Float(tileH))))
-            guard s.x + r >= 0, s.y + r >= 0 else { continue }
+        for g in glints {
+            let x = Int32(g.x), y = Int32(g.y), r = Int32(g.r) + 2
+            guard x + r >= 0, y + r >= 0 else { continue }
+            let c0 = Int(max(0, min(Int32(tileColumns - 1), (x - r) / tileW)))
+            let c1 = Int(max(0, min(Int32(tileColumns - 1), (x + r) / tileW)))
+            let r0 = Int(max(0, min(Int32(tileRows - 1), (y - r) / tileH)))
+            let r1 = Int(max(0, min(Int32(tileRows - 1), (y + r) / tileH)))
             for row in r0...r1 {
                 for col in c0...c1 { tiles[row] |= 1 << UInt16(col) }
             }
@@ -861,43 +875,121 @@ private final class AdventUI {
 }
 
 /// Draws a picture's shapes as they're made
-/// Shapes outside the area being redrawn are skipped: LVGL would allocate (and queue) a draw task for each anyway,
-/// and a picture has up to ~300 shapes, drawn again for every strip of every frame that touches it.
-private struct LayerShapeSink: IconShapeSink {
-    let layer: UnsafeMutablePointer<lv_layer_t>
-    let x0: Int32
-    let y0: Int32
-    let scale: Float
-    /// The redrawn area in picture units (with a little margin for anti-aliasing and rounding)
-    let minX: Float, minY: Float, maxX: Float, maxY: Float
+/// A glitter particle as drawn: whole pixels, its opacity worked out for this frame
+private struct Glint {
+    let x: Int16
+    let y: Int16
+    /// Half its size
+    let r: Int16
+    let opa: UInt8
+    let isStar: Bool
+    let color: lv_color_t
 
-    init(layer: UnsafeMutablePointer<lv_layer_t>, x0: Int32, y0: Int32, scale: Float) {
-        self.layer = layer
+    init?(_ t: Twinkle) {
+        let opa = t.opacity
+        guard opa > 8, t.x > -20, t.y > -20, t.x < Float(WatchScreen.width + 20), t.y < Float(WatchScreen.height + 20)
+        else { return nil }
+        x = Int16(t.x)
+        y = Int16(t.y)
+        r = Int16(t.isStar ? t.size : t.size / 2)
+        self.opa = opa
+        isStar = t.isStar
+        color = lvColor(t.color)
+    }
+}
+
+/// A picture's shapes converted once to screen pixels, in chunks of 64 (no big block of memory). Redrawing a part of
+/// it is then integer work only: shapes outside the redrawn area are skipped, the rest go straight to LVGL.
+private struct PixelPicture: IconShapeSink {
+    private struct Shape {
+        /// 0 = filled rect (c4 = corner radius), 1 = disc, 2 = line (c4 = width), 3 = triangle (c0...c5)
+        var kind: UInt8
+        var r: UInt8, g: UInt8, b: UInt8, a: UInt8
+        var c0: Int16, c1: Int16, c2: Int16, c3: Int16, c4: Int16, c5: Int16
+    }
+
+    private var chunks: [[Shape]] = []
+    private let x0: Int32
+    private let y0: Int32
+    private let scale: Float
+
+    init(x0: Int32 = 0, y0: Int32 = 0, scale: Float = 1) {
         self.x0 = x0
         self.y0 = y0
         self.scale = scale
-        let clip = layer.pointee._clip_area
-        minX = Float(clip.x1 - x0 - 2) / scale
-        minY = Float(clip.y1 - y0 - 2) / scale
-        maxX = Float(clip.x2 - x0 + 2) / scale
-        maxY = Float(clip.y2 - y0 + 2) / scale
     }
 
+    private func px(_ v: Float) -> Int16 { Int16(clamping: x0 + Int32((v * scale).rounded())) }
+    private func py(_ v: Float) -> Int16 { Int16(clamping: y0 + Int32((v * scale).rounded())) }
+
     mutating func add(_ shape: IconShape) {
-        let (x1, y1, x2, y2): (Float, Float, Float, Float)
+        var s: Shape
         switch shape {
-        case .circle(let cx, let cy, let r, _):
-            (x1, y1, x2, y2) = (cx - r, cy - r, cx + r, cy + r)
-        case .roundRect(let x, let y, let w, let h, _, _):
-            (x1, y1, x2, y2) = (x, y, x + w, y + h)
-        case .line(let ax, let ay, let bx, let by, let width, _):
-            let m = width / 2
-            (x1, y1, x2, y2) = (min(ax, bx) - m, min(ay, by) - m, max(ax, bx) + m, max(ay, by) + m)
-        case .triangle(let ax, let ay, let bx, let by, let cx, let cy, _):
-            (x1, y1, x2, y2) = (min(ax, bx, cx), min(ay, by, cy), max(ax, bx, cx), max(ay, by, cy))
+        case .circle(let cx, let cy, let r, let color):
+            s = Shape(kind: 1, r: color.r, g: color.g, b: color.b, a: color.a, c0: px(cx - r), c1: py(cy - r),
+                      c2: px(cx + r) - 1, c3: py(cy + r) - 1, c4: 0, c5: 0)
+        case .roundRect(let x, let y, let w, let h, let radius, let color):
+            s = Shape(kind: 0, r: color.r, g: color.g, b: color.b, a: color.a, c0: px(x), c1: py(y), c2: px(x + w) - 1,
+                      c3: py(y + h) - 1, c4: Int16((radius * scale).rounded()), c5: 0)
+        case .line(let x1, let y1, let x2, let y2, let width, let color):
+            s = Shape(kind: 2, r: color.r, g: color.g, b: color.b, a: color.a, c0: px(x1), c1: py(y1), c2: px(x2),
+                      c3: py(y2), c4: max(1, Int16((width * scale).rounded())), c5: 0)
+        case .triangle(let x1, let y1, let x2, let y2, let x3, let y3, let color):
+            s = Shape(kind: 3, r: color.r, g: color.g, b: color.b, a: color.a, c0: px(x1), c1: py(y1), c2: px(x2),
+                      c3: py(y2), c4: px(x3), c5: py(y3))
         }
-        guard x2 >= minX && x1 <= maxX && y2 >= minY && y1 <= maxY else { return }
-        WeatherIconDrawing.draw(shape, layer: layer, x0: x0, y0: y0, scale: scale)
+        if chunks.isEmpty || chunks[chunks.count - 1].count == 64 {
+            var chunk: [Shape] = []
+            chunk.reserveCapacity(64)
+            chunks.append(chunk)
+        }
+        chunks[chunks.count - 1].append(s)
+    }
+
+    func draw(_ layer: UnsafeMutablePointer<lv_layer_t>) {
+        let clip = layer.pointee._clip_area
+        var rect = lv_draw_rect_dsc_t()
+        lv_draw_rect_dsc_init(&rect)
+        for chunk in chunks {
+            for s in chunk {
+                var x1 = Int32(s.c0), y1 = Int32(s.c1), x2 = Int32(s.c2), y2 = Int32(s.c3)
+                switch s.kind {
+                case 2:
+                    let m = Int32(s.c4) / 2 + 1
+                    (x1, x2) = (min(x1, x2) - m, max(x1, x2) + m)
+                    (y1, y2) = (min(y1, y2) - m, max(y1, y2) + m)
+                case 3:
+                    (x1, x2) = (min(x1, x2, Int32(s.c4)), max(x1, x2, Int32(s.c4)))
+                    (y1, y2) = (min(y1, y2, Int32(s.c5)), max(y1, y2, Int32(s.c5)))
+                default:
+                    break
+                }
+                guard x2 >= clip.x1 - 1 && x1 <= clip.x2 + 1 && y2 >= clip.y1 - 1 && y1 <= clip.y2 + 1 else { continue }
+                let color = lv_color_make(s.r, s.g, s.b)
+                switch s.kind {
+                case 0, 1:
+                    rect.radius = s.kind == 1 ? wf_radius_circle() : Int32(s.c4)
+                    rect.bg_color = color
+                    rect.bg_opa = s.a
+                    var area = lv_area_t(x1: x1, y1: y1, x2: x2, y2: y2)
+                    lv_draw_rect(layer, &rect, &area)
+                case 2:
+                    var d = lv_draw_line_dsc_t()
+                    lv_draw_line_dsc_init(&d)
+                    d.p1 = wf_point(Int32(s.c0), Int32(s.c1))
+                    d.p2 = wf_point(Int32(s.c2), Int32(s.c3))
+                    d.width = Int32(s.c4)
+                    d.color = color
+                    d.opa = s.a
+                    d.round_start = 1
+                    d.round_end = 1
+                    lv_draw_line(layer, &d)
+                default:
+                    wf_draw_triangle(layer, Int32(s.c0), Int32(s.c1), Int32(s.c2), Int32(s.c3), Int32(s.c4), Int32(s.c5),
+                                     color, s.a)
+                }
+            }
+        }
     }
 }
 
